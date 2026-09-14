@@ -12,19 +12,114 @@ app = Flask(__name__)
 
 def get_connection():
     db_url = os.environ.get("DATABASE_URL")
-    if db_url:
-        return psycopg2.connect(db_url)
-    return psycopg2.connect(
-        host="localhost",
-        port="5432",
-        database="flood_planner",
-        user="postgres",
-        password="1611"
-    )
+
+    if not db_url:
+        raise Exception("DATABASE_URL is not configured on Render.")
+
+    # Render may provide postgres://
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+    return psycopg2.connect(db_url)
 
 
 # ==========================================
-# GET ROAD STATUS FROM DATABASE
+# CREATE DATABASE TABLE + SAMPLE DATA
+# ==========================================
+
+def initialize_database():
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS roads (
+            id SERIAL PRIMARY KEY,
+            road_name VARCHAR(100) UNIQUE NOT NULL,
+            start_location VARCHAR(100) NOT NULL,
+            end_location VARCHAR(100) NOT NULL,
+            distance_km NUMERIC NOT NULL,
+            flood_level VARCHAR(20) NOT NULL,
+            road_status VARCHAR(20) NOT NULL
+        )
+    """)
+
+    # Sample road network
+    roads = [
+        (
+            "Bus Stand - Government Hospital",
+            "Nandyal Bus Stand",
+            "Government Hospital",
+            2.0,
+            "low",
+            "open"
+        ),
+        (
+            "Government Hospital - Railway Station",
+            "Government Hospital",
+            "Railway Station",
+            1.5,
+            "medium",
+            "open"
+        ),
+        (
+            "Railway Station - Evacuation Center",
+            "Railway Station",
+            "Evacuation Center",
+            2.0,
+            "low",
+            "open"
+        ),
+        (
+            "Bus Stand - Railway Station",
+            "Nandyal Bus Stand",
+            "Railway Station",
+            3.5,
+            "high",
+            "open"
+        ),
+        (
+            "Government Hospital - Evacuation Center",
+            "Government Hospital",
+            "Evacuation Center",
+            3.0,
+            "low",
+            "open"
+        ),
+        (
+            "Bus Stand - Evacuation Center",
+            "Nandyal Bus Stand",
+            "Evacuation Center",
+            5.0,
+            "medium",
+            "blocked"
+        )
+    ]
+
+    for road in roads:
+
+        cursor.execute("""
+            INSERT INTO roads
+            (
+                road_name,
+                start_location,
+                end_location,
+                distance_km,
+                flood_level,
+                road_status
+            )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (road_name) DO NOTHING
+        """, road)
+
+    conn.commit()
+
+    cursor.close()
+    conn.close()
+
+
+# ==========================================
+# GET ROAD STATUS
 # ==========================================
 
 def get_road_status():
@@ -76,53 +171,35 @@ def find_route(source, destination):
     cursor.close()
     conn.close()
 
-    # Create graph
     G = nx.Graph()
 
-    # Add roads to graph
     for start, end, distance, flood_level, status in roads:
 
         status = str(status).strip().lower()
         flood_level = str(flood_level).strip().lower()
 
-        # ------------------------------------------
-        # BLOCKED ROAD
-        # ------------------------------------------
-
+        # Ignore blocked roads
         if status == "blocked":
             continue
 
-        # ------------------------------------------
-        # FLOOD RISK PENALTY
-        # ------------------------------------------
-
+        # Flood-risk penalty
         if flood_level == "low":
             risk_penalty = 0
-
         elif flood_level == "medium":
             risk_penalty = 10
-
         elif flood_level == "high":
             risk_penalty = 50
-
         else:
             risk_penalty = 0
-
-        # ------------------------------------------
-        # TOTAL ROUTE COST
-        # ------------------------------------------
 
         route_cost = float(distance) + risk_penalty
 
         G.add_edge(
             start,
             end,
-            weight=route_cost
+            weight=route_cost,
+            distance=float(distance)
         )
-
-    # ------------------------------------------
-    # FIND SHORTEST / SAFEST ROUTE
-    # ------------------------------------------
 
     try:
 
@@ -158,7 +235,6 @@ def home():
     distance = None
     error = None
 
-    # Locations used in the website
     locations = [
         "Nandyal Bus Stand",
         "Government Hospital",
@@ -166,35 +242,28 @@ def home():
         "Evacuation Center"
     ]
 
-    # ------------------------------------------
-    # GET ROAD INFORMATION
-    # ------------------------------------------
-
+    # Initialize database
     try:
-
-        road_statuses = get_road_status()
-
+        initialize_database()
     except Exception as e:
+        error = "Database error: " + str(e)
 
+    # Get road information
+    try:
+        road_statuses = get_road_status()
+    except Exception:
         road_statuses = []
 
-        error = "Database connection error: " + str(e)
-
-    # ------------------------------------------
-    # WHEN USER SUBMITS ROUTE FORM
-    # ------------------------------------------
-
+    # Route form
     if request.method == "POST":
 
         source = request.form.get("source")
         destination = request.form.get("destination")
 
-        # Check empty fields
         if not source or not destination:
 
             error = "Please select both starting location and destination."
 
-        # Same location
         elif source == destination:
 
             error = "Starting location and destination cannot be the same."
@@ -208,19 +277,12 @@ def home():
                     destination
                 )
 
-                # No route
                 if route is None:
-
                     error = "No safe route available between these locations."
 
             except Exception as e:
 
                 error = "Route calculation error: " + str(e)
-
-
-    # ------------------------------------------
-    # SEND DATA TO HTML
-    # ------------------------------------------
 
     return render_template(
         "index.html",
@@ -233,13 +295,12 @@ def home():
 
 
 # ==========================================
-# START FLASK SERVER
+# START SERVER
 # ==========================================
 
 if __name__ == "__main__":
 
     app.run(
-        debug=True,
-        host="127.0.0.1",
-        port=5000
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000))
     )
