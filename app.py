@@ -11,6 +11,9 @@ app = Flask(__name__)
 # ==========================================
 
 def get_connection():
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        return psycopg2.connect(db_url)
     return psycopg2.connect(
         host="localhost",
         port="5432",
@@ -18,6 +21,7 @@ def get_connection():
         user="postgres",
         password="1611"
     )
+
 
 # ==========================================
 # GET ROAD STATUS FROM DATABASE
