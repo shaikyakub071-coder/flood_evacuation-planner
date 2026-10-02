@@ -1,4 +1,5 @@
-<!DOCTYPE html>
+
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 
@@ -7,11 +8,11 @@
 
     <title>Flood Evacuation Route Planner</title>
 
-    <!-- LEAFLET MAP -->
+    <!-- LEAFLET -->
     <link
         rel="stylesheet"
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    />
+    >
 
     <script
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
@@ -262,6 +263,14 @@
             color: #111827;
         }
 
+        /* ROUTING STATUS */
+
+        #routingStatus {
+            margin-top: 12px;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
         /* FOOTER */
 
         footer {
@@ -287,6 +296,7 @@
 </head>
 
 <body>
+
 
 <!-- HEADER -->
 
@@ -320,11 +330,14 @@
 
                     <select name="source" required>
 
-                        <option value="">Select Starting Location</option>
+                        <option value="">
+                            Select Starting Location
+                        </option>
 
                         {% for location in locations %}
 
-                        <option value="{{ location }}"
+                        <option
+                            value="{{ location }}"
                             {% if request.form.get('source') == location %}
                             selected
                             {% endif %}
@@ -347,11 +360,14 @@
 
                     <select name="destination" required>
 
-                        <option value="">Select Destination</option>
+                        <option value="">
+                            Select Destination
+                        </option>
 
                         {% for location in locations %}
 
-                        <option value="{{ location }}"
+                        <option
+                            value="{{ location }}"
                             {% if request.form.get('destination') == location %}
                             selected
                             {% endif %}
@@ -370,7 +386,10 @@
 
                 <div>
 
-                    <button class="search-btn" type="submit">
+                    <button
+                        class="search-btn"
+                        type="submit"
+                    >
 
                         🔍 Find Safe Route
 
@@ -432,10 +451,11 @@
 
         {% endif %}
 
+
         <p style="color:#94a3b8; margin-top:15px;">
 
-            The route avoids blocked roads and considers flood-risk
-            penalties.
+            The route avoids blocked roads and considers
+            flood-risk penalties.
 
         </p>
 
@@ -451,6 +471,11 @@
         <h2>🗺️ Flood Evacuation Map</h2>
 
         <div id="map"></div>
+
+        <div id="routingStatus">
+            Loading real road network...
+        </div>
+
 
         <div class="legend">
 
@@ -613,7 +638,7 @@ L.tileLayer(
 
 
 /* =========================================================
-   ADD LOCATION MARKERS
+   LOCATION MARKERS
    ========================================================= */
 
 for (var name in locations) {
@@ -654,101 +679,281 @@ var roadData = [
 
 
 /* =========================================================
-   DRAW ROADS
+   OSRM REAL ROAD ROUTING
    ========================================================= */
 
-roadData.forEach(function(road) {
+/*
+   OSRM uses:
 
-    if (
-        locations[road.start] &&
-        locations[road.end]
+   longitude,latitude
+
+   while Leaflet uses:
+
+   latitude,longitude
+*/
+
+
+async function getRealRoadGeometry(start, end) {
+
+    var startCoord = locations[start];
+    var endCoord = locations[end];
+
+    if (!startCoord || !endCoord) {
+
+        return null;
+
+    }
+
+
+    var startLon = startCoord[1];
+    var startLat = startCoord[0];
+
+    var endLon = endCoord[1];
+    var endLat = endCoord[0];
+
+
+    var url =
+        "https://router.project-osrm.org/route/v1/driving/" +
+
+        startLon + "," + startLat +
+
+        ";" +
+
+        endLon + "," + endLat +
+
+        "?overview=full&geometries=geojson";
+
+
+    try {
+
+        var response = await fetch(url);
+
+        if (!response.ok) {
+
+            throw new Error(
+                "OSRM request failed"
+            );
+
+        }
+
+
+        var data = await response.json();
+
+
+        if (
+            data.code !== "Ok" ||
+            !data.routes ||
+            data.routes.length === 0
+        ) {
+
+            return null;
+
+        }
+
+
+        /*
+           GeoJSON gives:
+
+           [longitude, latitude]
+
+           Convert to:
+
+           [latitude, longitude]
+        */
+
+        var coordinates =
+            data.routes[0].geometry.coordinates.map(
+                function(point) {
+
+                    return [
+                        point[1],
+                        point[0]
+                    ];
+
+                }
+            );
+
+
+        return coordinates;
+
+    }
+
+    catch (error) {
+
+        console.error(
+            "Road routing error:",
+            error
+        );
+
+        return null;
+
+    }
+
+}
+
+
+/* =========================================================
+   ROAD COLOR
+   ========================================================= */
+
+function getRoadColor(road) {
+
+    var flood =
+        String(road.flood).toLowerCase();
+
+    var status =
+        String(road.status).toLowerCase();
+
+
+    if (status === "blocked") {
+
+        return "#111111";
+
+    }
+
+
+    if (flood === "high") {
+
+        return "#ef4444";
+
+    }
+
+
+    if (flood === "medium") {
+
+        return "#f59e0b";
+
+    }
+
+
+    return "#22c55e";
+
+}
+
+
+/* =========================================================
+   DRAW ONE REAL ROAD
+   ========================================================= */
+
+async function drawRealRoad(road) {
+
+    var geometry =
+        await getRealRoadGeometry(
+            road.start,
+            road.end
+        );
+
+
+    if (!geometry) {
+
+        console.warn(
+            "Could not find road:",
+            road.name
+        );
+
+        return;
+
+    }
+
+
+    var line = L.polyline(
+
+        geometry,
+
+        {
+            color: getRoadColor(road),
+
+            weight: 6,
+
+            opacity: 0.85,
+
+            lineCap: "round",
+
+            lineJoin: "round"
+        }
+
+    ).addTo(map);
+
+
+    line.bindPopup(
+
+        "<b>🚧 " +
+        road.name +
+        "</b><br><br>" +
+
+        "From: " +
+        road.start +
+        "<br>" +
+
+        "To: " +
+        road.end +
+        "<br>" +
+
+        "Distance: " +
+        road.distance +
+        " km<br>" +
+
+        "Flood Level: " +
+
+        String(road.flood).toUpperCase() +
+
+        "<br>" +
+
+        "Road Status: " +
+
+        String(road.status).toUpperCase()
+
+    );
+
+}
+
+
+/* =========================================================
+   DRAW ALL REAL ROADS
+   ========================================================= */
+
+async function drawAllRoads() {
+
+    var status =
+        document.getElementById(
+            "routingStatus"
+        );
+
+
+    status.innerText =
+        "🛰️ Loading real road geometry...";
+
+
+    for (
+        var i = 0;
+        i < roadData.length;
+        i++
     ) {
 
-        var color = "green";
-
-        var flood =
-            String(road.flood).toLowerCase();
-
-        var status =
-            String(road.status).toLowerCase();
-
-
-        if (status === "blocked") {
-
-            color = "black";
-
-        }
-
-        else if (flood === "high") {
-
-            color = "red";
-
-        }
-
-        else if (flood === "medium") {
-
-            color = "orange";
-
-        }
-
-        else {
-
-            color = "green";
-
-        }
-
-
-        var line = L.polyline(
-
-            [
-                locations[road.start],
-                locations[road.end]
-            ],
-
-            {
-                color: color,
-                weight: 6,
-                opacity: 0.85
-            }
-
-        ).addTo(map);
-
-
-        line.bindPopup(
-
-            "<b>🚧 " + road.name + "</b><br>" +
-
-            "From: " + road.start + "<br>" +
-
-            "To: " + road.end + "<br>" +
-
-            "Distance: " + road.distance + " km<br>" +
-
-            "Flood Level: " +
-            String(road.flood).toUpperCase() +
-            "<br>" +
-
-            "Road Status: " +
-            String(road.status).toUpperCase()
-
+        await drawRealRoad(
+            roadData[i]
         );
 
     }
 
-});
+
+    status.innerText =
+        "✅ Real road network loaded using OpenStreetMap routing.";
+
+}
 
 
 /* =========================================================
-   SHOW SELECTED ROUTE ON MAP
+   SELECTED ROUTE
    ========================================================= */
 
 {% if route %}
 
-var routeCoordinates = [
+var selectedRoute = [
 
 {% for place in route %}
 
-    locations[{{ place|tojson }}]
+    {{ place|tojson }}
 
     {% if not loop.last %},{% endif %}
 
@@ -757,38 +962,174 @@ var routeCoordinates = [
 ];
 
 
-/* Draw recommended route */
+/* =========================================================
+   DRAW SELECTED ROUTE ON REAL ROADS
+   ========================================================= */
 
-var routeLine = L.polyline(
+async function drawSelectedRoute() {
 
-    routeCoordinates,
+    var allCoordinates = [];
 
-    {
-        color: "#00ff00",
-        weight: 8,
-        opacity: 1
+
+    /*
+       Get real road geometry for every
+       pair of locations in the NetworkX route.
+    */
+
+    for (
+        var i = 0;
+        i < selectedRoute.length - 1;
+        i++
+    ) {
+
+        var start =
+            selectedRoute[i];
+
+        var end =
+            selectedRoute[i + 1];
+
+
+        var geometry =
+            await getRealRoadGeometry(
+                start,
+                end
+            );
+
+
+        if (geometry) {
+
+            /*
+               Avoid duplicate point at
+               connection between segments.
+            */
+
+            if (allCoordinates.length > 0) {
+
+                geometry.shift();
+
+            }
+
+
+            allCoordinates =
+                allCoordinates.concat(
+                    geometry
+                );
+
+        }
+
     }
 
-).addTo(map);
+
+    /*
+       Draw recommended route
+    */
+
+    if (allCoordinates.length > 1) {
+
+        var routeLine =
+            L.polyline(
+
+                allCoordinates,
+
+                {
+                    color: "#00ff00",
+
+                    weight: 9,
+
+                    opacity: 1,
+
+                    lineCap: "round",
+
+                    lineJoin: "round"
+                }
+
+            ).addTo(map);
 
 
-/* Zoom to route */
+        /*
+           Add white border effect
+           behind green route
+        */
 
-map.fitBounds(
-    routeLine.getBounds(),
-    {
-        padding: [30, 30]
+        var routeBorder =
+            L.polyline(
+
+                allCoordinates,
+
+                {
+                    color: "#000000",
+
+                    weight: 13,
+
+                    opacity: 0.8,
+
+                    lineCap: "round",
+
+                    lineJoin: "round"
+                }
+
+            );
+
+
+        /*
+           Put black border below
+           green route
+        */
+
+        routeBorder.addTo(map);
+
+        routeLine.bringToFront();
+
+
+        routeLine.bindPopup(
+            "🟢 Recommended Flood-Aware Route"
+        );
+
+
+        /*
+           Zoom to actual road route
+        */
+
+        map.fitBounds(
+
+            routeLine.getBounds(),
+
+            {
+                padding: [30, 30]
+            }
+
+        );
+
+
+        document.getElementById(
+            "routingStatus"
+        ).innerText =
+            "✅ Recommended route follows the real road network.";
+
     }
-);
+
+    else {
+
+        document.getElementById(
+            "routingStatus"
+        ).innerText =
+            "⚠️ Could not load road geometry for the selected route.";
+
+    }
+
+}
 
 
-/* Add route popup */
-
-routeLine.bindPopup(
-    "🟢 Recommended Flood-Aware Route"
-);
+drawSelectedRoute();
 
 {% endif %}
+
+
+/* =========================================================
+   LOAD ROAD NETWORK
+   ========================================================= */
+
+drawAllRoads();
 
 
 /* =========================================================
@@ -799,10 +1140,11 @@ setTimeout(function() {
 
     map.invalidateSize();
 
-}, 500);
+}, 1000);
 
 </script>
 
 
 </body>
-</html>
+</html>           
+            
