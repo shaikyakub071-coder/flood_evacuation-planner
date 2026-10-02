@@ -1,1582 +1,868 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-
     <meta charset="UTF-8">
-
     <meta
         name="viewport"
         content="width=device-width, initial-scale=1.0"
     >
-
     <title>
         Flood Evacuation Route Planner
     </title>
-
-
     <!-- =================================================
          LEAFLET
     ================================================== -->
-
     <link
         rel="stylesheet"
         href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     >
-
     <script
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
     </script>
-
-
     <style>
-
         /* =================================================
            GENERAL
         ================================================= */
-
         * {
             box-sizing: border-box;
         }
-
-
         body {
-
             margin: 0;
-
             font-family:
                 Arial,
                 sans-serif;
-
             background: #0f172a;
-
             color: white;
-
         }
-
-
         /* =================================================
            HEADER
         ================================================= */
-
         .header {
-
             background:
                 linear-gradient(
                     135deg,
                     #0f172a,
                     #1e293b
                 );
-
             padding: 25px;
-
             text-align: center;
-
             border-bottom:
                 2px solid #334155;
-
         }
-
-
         .header h1 {
-
             margin: 0;
-
             color: #38bdf8;
-
             font-size: 32px;
-
         }
-
-
         .header p {
-
             color: #cbd5e1;
-
             margin-top: 8px;
-
         }
-
-
         .container {
-
             width: 95%;
-
             max-width: 1400px;
-
             margin: 25px auto;
-
         }
-
-
         /* =================================================
            SEARCH BOX
         ================================================== */
-
         .search-box {
-
             background: #1e293b;
-
             padding: 25px;
-
             border-radius: 12px;
-
             margin-bottom: 25px;
-
             box-shadow:
                 0 5px 20px
                 rgba(0,0,0,0.3);
-
         }
-
-
         .search-box h2 {
-
             margin-top: 0;
-
             color: #38bdf8;
-
         }
-
-
         .form-row {
-
             display: flex;
-
             gap: 20px;
-
             flex-wrap: wrap;
-
             align-items: end;
-
         }
-
-
         .form-group {
-
             flex: 1;
-
             min-width: 250px;
-
         }
-
-
         label {
-
             display: block;
-
             margin-bottom: 8px;
-
             color: #cbd5e1;
-
             font-weight: bold;
-
         }
-
-
         select {
-
             width: 100%;
-
             padding: 12px;
-
             border-radius: 7px;
-
             border:
                 1px solid #475569;
-
             background: #0f172a;
-
             color: white;
-
             font-size: 15px;
-
         }
-
-
         .search-btn {
-
             padding: 12px 25px;
-
             background: #0284c7;
-
             color: white;
-
             border: none;
-
             border-radius: 7px;
-
             font-size: 16px;
-
             font-weight: bold;
-
             cursor: pointer;
-
         }
-
-
         .search-btn:hover {
-
             background: #0369a1;
-
         }
-
-
         /* =================================================
            ERROR
         ================================================== */
-
         .error {
-
             background: #7f1d1d;
-
             color: #fecaca;
-
             padding: 15px;
-
             border-radius: 8px;
-
             margin-bottom: 20px;
-
         }
-
-
         /* =================================================
            ROUTE RESULT
         ================================================== */
-
         .route-box {
-
             background: #1e293b;
-
             padding: 25px;
-
             border-radius: 12px;
-
             margin-bottom: 25px;
-
         }
-
-
         .route-box h2 {
-
             color: #22c55e;
-
             margin-top: 0;
-
         }
-
-
         .route-list {
-
             padding-left: 25px;
-
         }
-
-
         .route-list li {
-
             padding: 10px;
-
             margin-bottom: 6px;
-
             background: #334155;
-
             border-radius: 5px;
-
         }
-
-
         .distance {
-
             margin-top: 15px;
-
             padding: 15px;
-
             background: #0f172a;
-
             border-radius: 7px;
-
             color: #38bdf8;
-
             font-weight: bold;
-
             font-size: 18px;
-
         }
-
-
         /* =================================================
            MAP CONTAINER
         ================================================== */
-
         .map-container {
-
             background: #1e293b;
-
             padding: 20px;
-
             border-radius: 12px;
-
             margin-bottom: 25px;
-
         }
-
-
         .map-container h2 {
-
             color: #38bdf8;
-
             margin-top: 0;
-
         }
-
-
         #map {
-
             width: 100%;
-
             height: 550px;
-
             border-radius: 10px;
-
             border:
                 2px solid #475569;
-
         }
-
-
         /* =================================================
            MAP STATUS
         ================================================== */
-
         #routingStatus {
-
             margin-top: 12px;
-
             color: #94a3b8;
-
             font-size: 14px;
-
         }
-
-
         /* =================================================
            START / DESTINATION LABELS
         ================================================== */
-
         .start-label {
-
             background: #2563eb;
-
             color: white;
-
             border: none;
-
             border-radius: 8px;
-
             padding: 7px 10px;
-
             font-weight: bold;
-
             box-shadow:
                 0 2px 8px
                 rgba(0,0,0,0.4);
-
         }
-
-
         .destination-label {
-
             background: #dc2626;
-
             color: white;
-
             border: none;
-
             border-radius: 8px;
-
             padding: 7px 10px;
-
             font-weight: bold;
-
             box-shadow:
                 0 2px 8px
                 rgba(0,0,0,0.4);
-
         }
-
-
         /* =================================================
            LEGEND
         ================================================== */
-
         .legend {
-
             background: #1e293b;
-
             padding: 15px;
-
             margin-top: 15px;
-
             border-radius: 8px;
-
             display: flex;
-
             gap: 25px;
-
             flex-wrap: wrap;
-
         }
-
-
         .legend-item {
-
             color: #cbd5e1;
-
         }
-
-
         /* =================================================
            ROAD TABLE
         ================================================== */
-
         .road-box {
-
             background: #1e293b;
-
             padding: 20px;
-
             border-radius: 12px;
-
             overflow-x: auto;
-
         }
-
-
         .road-box h2 {
-
             color: #38bdf8;
-
         }
-
-
         table {
-
             width: 100%;
-
             border-collapse: collapse;
-
             margin-top: 15px;
-
         }
-
-
         th {
-
             background: #334155;
-
             color: white;
-
             padding: 12px;
-
         }
-
-
         td {
-
             padding: 12px;
-
             text-align: center;
-
             border-bottom:
                 1px solid #475569;
-
         }
-
-
         /* =================================================
            STATUS COLORS
         ================================================== */
-
         .low {
-
             color: #22c55e;
-
             font-weight: bold;
-
         }
-
-
         .medium {
-
             color: #f59e0b;
-
             font-weight: bold;
-
         }
-
-
         .high {
-
             color: #ef4444;
-
             font-weight: bold;
-
         }
-
-
         .blocked {
-
             color: #ef4444;
-
             font-weight: bold;
-
         }
-
-
         .open {
-
             color: #22c55e;
-
             font-weight: bold;
-
         }
-
-
         /* =================================================
            FOOTER
         ================================================== */
-
         footer {
-
             text-align: center;
-
             padding: 25px;
-
             color: #94a3b8;
-
         }
-
-
         /* =================================================
            MOBILE
         ================================================== */
-
         @media(max-width:700px) {
-
             .header h1 {
-
                 font-size: 24px;
-
             }
-
-
             #map {
-
                 height: 450px;
-
             }
-
         }
-
     </style>
-
 </head>
-
-
 <body>
-
-
 <!-- =====================================================
      HEADER
 ====================================================== -->
-
 <div class="header">
-
     <h1>
         🌊 Flood Evacuation Route Planner
     </h1>
-
     <p>
         Flood-aware evacuation planning
         using PostgreSQL and NetworkX
     </p>
-
 </div>
-
-
 <div class="container">
-
-
 <!-- =====================================================
      SEARCH
 ====================================================== -->
-
 <div class="search-box">
-
     <h2>
         🚗 Find Evacuation Route
     </h2>
-
-
     <form method="POST">
-
         <div class="form-row">
-
-
             <!-- STARTING LOCATION -->
-
             <div class="form-group">
-
                 <label>
                     Starting Location
                 </label>
-
-
                 <select
                     name="source"
                     required
                 >
-
                     <option value="">
                         Select Starting Location
                     </option>
-
-
                     {% for location in locations %}
-
                     <option
                         value="{{ location }}"
-
                         {% if request.form.get('source') == location %}
-
                         selected
-
                         {% endif %}
                     >
-
                         {{ location }}
-
                     </option>
-
                     {% endfor %}
-
                 </select>
-
             </div>
-
-
             <!-- DESTINATION -->
-
             <div class="form-group">
-
                 <label>
                     Destination
                 </label>
-
-
                 <select
                     name="destination"
                     required
                 >
-
                     <option value="">
                         Select Destination
                     </option>
-
-
-                    {% for location in locations %}
-
                     <option
-                        value="{{ location }}"
-
-                        {% if request.form.get('destination') == location %}
-
+                        value="AUTO"
+                        {% if request.form.get('destination') == 'AUTO' %}
                         selected
-
                         {% endif %}
                     >
-
-                        {{ location }}
-
+                        ⭐ Nearest Safe Shelter (Auto)
                     </option>
-
+                    {% for location in locations %}
+                    <option
+                        value="{{ location }}"
+                        {% if request.form.get('destination') == location %}
+                        selected
+                        {% endif %}
+                    >
+                        {{ location }}
+                    </option>
                     {% endfor %}
-
                 </select>
-
             </div>
-
-
             <!-- BUTTON -->
-
             <div>
-
                 <button
                     class="search-btn"
                     type="submit"
                 >
-
                     🔍 Find Safe Route
-
                 </button>
-
             </div>
-
         </div>
-
     </form>
-
 </div>
-
-
 <!-- =====================================================
      ERROR
 ====================================================== -->
-
 {% if error %}
-
 <div class="error">
-
     ❌ {{ error }}
-
 </div>
-
 {% endif %}
-
-
 <!-- =====================================================
      ROUTE RESULT
 ====================================================== -->
-
 {% if route %}
-
 <div class="route-box">
-
     <h2>
         ✅ Recommended Evacuation Route
     </h2>
-
-
     <ol class="route-list">
-
         {% for place in route %}
-
         <li>
-
             📍 {{ place }}
-
         </li>
-
         {% endfor %}
-
     </ol>
-
-
-    {% if distance is not none %}
-
+    {% if shelter %}
     <div class="distance">
-
+        🏠 Assigned Shelter: {{ shelter.name }}
+        (capacity {{ shelter.capacity }})
+    </div>
+    {% endif %}
+    {% if distance is not none %}
+    <div class="distance">
         📏 Distance:
         {{ "%.2f"|format(distance) }}
         km
-
     </div>
-
     {% endif %}
-
-
     <p
         style="
             color:#94a3b8;
             margin-top:15px;
         "
     >
-
         The route avoids blocked roads
         and considers flood-risk penalties.
-
     </p>
-
 </div>
-
 {% endif %}
-
-
 <!-- =====================================================
      MAP
 ====================================================== -->
-
 <div class="map-container">
-
     <h2>
         🗺️ Flood Evacuation Map
     </h2>
-
-
     <div id="map"></div>
-
-
     <div id="routingStatus">
-
         {% if route %}
-
         🛰️ Loading recommended road route...
-
         {% else %}
-
         📍 Select a starting location
         and destination.
-
         {% endif %}
-
     </div>
-
-
     <div class="legend">
-
         <div class="legend-item">
-
             🔵 Starting Location
-
         </div>
-
-
         <div class="legend-item">
-
             🔴 Destination
-
         </div>
-
-
         <div class="legend-item">
-
             🟢 Recommended Flood-Safe Route
-
         </div>
-
     </div>
-
 </div>
-
-
 <!-- =====================================================
      ROAD STATUS TABLE
 ====================================================== -->
-
 <div class="road-box">
-
     <h2>
         🚧 Road & Flood Status
     </h2>
-
-
     <table>
-
         <thead>
-
             <tr>
-
                 <th>
                     Road Name
                 </th>
-
                 <th>
                     Start
                 </th>
-
                 <th>
                     End
                 </th>
-
                 <th>
                     Distance (km)
                 </th>
-
                 <th>
                     Flood Level
                 </th>
-
                 <th>
                     Road Status
                 </th>
-
             </tr>
-
         </thead>
-
-
         <tbody>
-
-
         {% if road_statuses %}
-
-
             {% for road in road_statuses %}
-
-
             <tr>
-
                 <td>
                     {{ road[0] }}
                 </td>
-
-
                 <td>
                     {{ road[1] }}
                 </td>
-
-
                 <td>
                     {{ road[2] }}
                 </td>
-
-
                 <td>
                     {{ road[3] }}
                 </td>
-
-
                 <td class="{{ road[4]|lower }}">
-
                     {{ road[4]|upper }}
-
                 </td>
-
-
                 <td class="{{ road[5]|lower }}">
-
                     {{ road[5]|upper }}
-
                 </td>
-
             </tr>
-
-
             {% endfor %}
-
-
         {% else %}
-
-
             <tr>
-
                 <td colspan="6">
-
                     No road records found.
-
                 </td>
-
             </tr>
-
-
         {% endif %}
-
-
         </tbody>
-
     </table>
-
 </div>
-
-
+<div class="road-box">
+    <h2>⚠️ Hazard Zones & Shelters</h2>
+    <table>
+        <thead>
+            <tr><th>Place</th><th>Type</th><th>Flood Risk / Capacity</th></tr>
+        </thead>
+        <tbody>
+        {% for z in zones %}
+            <tr>
+                <td>{{ z.name }}</td>
+                <td>Hazard Zone</td>
+                <td class="{{ z.risk_level() }}">{{ z.risk_level()|upper }}</td>
+            </tr>
+        {% endfor %}
+        {% for sh in shelters %}
+            <tr>
+                <td>{{ sh.name }}</td>
+                <td>Shelter</td>
+                <td>Capacity {{ sh.capacity }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
 </div>
-
-
+</div>
 <!-- =====================================================
      FOOTER
 ====================================================== -->
-
 <footer>
-
     Flood Evacuation Route Planner © 2026
-
 </footer>
-
-
 <script>
-
 /* =========================================================
    LOCATION COORDINATES
    =========================================================
-
    These are the coordinates currently used by your project.
-
    When you add more locations later, we will add their
    coordinates here.
 ========================================================= */
-
-var locations = {
-
-    "Nandyal Bus Stand":
-        [15.4786, 78.4836],
-
-    "Government Hospital":
-        [15.4815, 78.4855],
-
-    "Railway Station":
-        [15.4775, 78.4820],
-
-    "Evacuation Center":
-        [15.4860, 78.4900]
-
-};
-
-
+var locations = {{ coords|tojson }};
 /* =========================================================
    GET SELECTED LOCATIONS FROM FLASK
 ========================================================= */
-
 var selectedSource =
     {{ request.form.get('source')|tojson }};
-
-
 var selectedDestination =
-    {{ request.form.get('destination')|tojson }};
-
-
+    {{ resolved_destination|tojson }};
 /* =========================================================
    CREATE MAP
 ========================================================= */
-
 var map =
     L.map("map")
     .setView(
-
         [15.4810, 78.4850],
-
         15
-
     );
-
-
 /* =========================================================
    OPENSTREETMAP
 ========================================================= */
-
 L.tileLayer(
-
     "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-
     {
-
         maxZoom: 19,
-
         attribution:
             '&copy; OpenStreetMap contributors'
-
     }
-
 ).addTo(map);
-
-
 /* =========================================================
    START LOCATION
 ========================================================= */
-
 if (
-
     selectedSource &&
-
     locations[selectedSource]
-
 ) {
-
     var startMarker =
-
         L.circleMarker(
-
             locations[selectedSource],
-
             {
-
                 radius: 9,
-
                 color: "#ffffff",
-
                 weight: 3,
-
                 fillColor: "#2563eb",
-
                 fillOpacity: 1
-
             }
-
         ).addTo(map);
-
-
     startMarker.bindTooltip(
-
         "🔵 YOU ARE HERE<br>" +
-
         "<b>" +
-
         selectedSource +
-
         "</b>",
-
         {
-
             permanent: true,
-
             direction: "top",
-
             className:
                 "start-label",
-
             offset: [
                 0,
                 -10
             ]
-
         }
-
     );
-
-
     startMarker.bindPopup(
-
         "<b>🔵 Starting Location</b><br>" +
-
         selectedSource
-
     );
-
 }
-
-
 /* =========================================================
    DESTINATION
 ========================================================= */
-
 if (
-
     selectedDestination &&
-
     locations[selectedDestination]
-
 ) {
-
     var destinationMarker =
-
         L.circleMarker(
-
             locations[selectedDestination],
-
             {
-
                 radius: 9,
-
                 color: "#ffffff",
-
                 weight: 3,
-
                 fillColor: "#dc2626",
-
                 fillOpacity: 1
-
             }
-
         ).addTo(map);
-
-
     destinationMarker.bindTooltip(
-
         "🔴 DESTINATION<br>" +
-
         "<b>" +
-
         selectedDestination +
-
         "</b>",
-
         {
-
             permanent: true,
-
             direction: "top",
-
             className:
                 "destination-label",
-
             offset: [
                 0,
                 -10
             ]
-
         }
-
     );
-
-
     destinationMarker.bindPopup(
-
         "<b>🔴 Destination</b><br>" +
-
         selectedDestination
-
     );
-
 }
-
-
 /* =========================================================
    OSRM REAL ROAD ROUTING
 ========================================================= */
-
 async function getRealRoadGeometry(
-
     start,
-
     end
-
 ) {
-
     var startCoord =
         locations[start];
-
-
     var endCoord =
         locations[end];
-
-
     if (
-
         !startCoord ||
-
         !endCoord
-
     ) {
-
         return null;
-
     }
-
-
     /*
        Leaflet:
-
        latitude, longitude
-
        OSRM:
-
        longitude, latitude
     */
-
     var startLon =
         startCoord[1];
-
     var startLat =
         startCoord[0];
-
-
     var endLon =
         endCoord[1];
-
     var endLat =
         endCoord[0];
-
-
     var url =
-
         "https://router.project-osrm.org/route/v1/driving/" +
-
         startLon +
         "," +
         startLat +
-
         ";" +
-
         endLon +
         "," +
         endLat +
-
         "?overview=full&geometries=geojson";
-
-
     try {
-
         var response =
             await fetch(url);
-
-
         if (!response.ok) {
-
             throw new Error(
                 "OSRM request failed"
             );
-
         }
-
-
         var data =
             await response.json();
-
-
         if (
-
             data.code !== "Ok" ||
-
             !data.routes ||
-
             data.routes.length === 0
-
         ) {
-
             return null;
-
         }
-
-
         /*
            Convert:
-
            longitude,latitude
-
            to:
-
            latitude,longitude
         */
-
         var coordinates =
-
             data.routes[0]
             .geometry
             .coordinates
             .map(
-
                 function(point) {
-
                     return [
-
                         point[1],
-
                         point[0]
-
                     ];
-
                 }
-
             );
-
-
         return coordinates;
-
     }
-
     catch (error) {
-
         console.error(
-
             "Road routing error:",
-
             error
-
         );
-
         return null;
-
     }
-
 }
-
-
 /* =========================================================
    DRAW SELECTED ROUTE ONLY
 ========================================================= */
-
 {% if route %}
-
-
 var selectedRoute = [
-
 {% for place in route %}
-
     {{ place|tojson }}
-
     {% if not loop.last %},{% endif %}
-
 {% endfor %}
-
 ];
-
-
 async function drawSelectedRoute() {
-
     var allCoordinates = [];
-
-
     /* -----------------------------------------------------
        GET ROAD GEOMETRY FOR EACH ROUTE SEGMENT
     ----------------------------------------------------- */
-
     for (
-
         var i = 0;
-
         i < selectedRoute.length - 1;
-
         i++
-
     ) {
-
         var start =
             selectedRoute[i];
-
-
         var end =
             selectedRoute[i + 1];
-
-
         var geometry =
-
             await getRealRoadGeometry(
-
                 start,
-
                 end
-
             );
-
-
         if (geometry) {
-
             /*
                Remove duplicate point where
                two road segments join.
             */
-
             if (
                 allCoordinates.length > 0
             ) {
-
                 geometry.shift();
-
             }
-
-
             allCoordinates =
                 allCoordinates.concat(
                     geometry
                 );
-
         }
-
     }
-
-
     /* -----------------------------------------------------
        DRAW ONLY ONE GREEN ROUTE
     ----------------------------------------------------- */
-
     if (
-
         allCoordinates.length > 1
-
     ) {
-
         var routeLine =
-
             L.polyline(
-
                 allCoordinates,
-
                 {
-
                     color: "#16ff00",
-
                     weight: 8,
-
                     opacity: 1,
-
                     lineCap:
                         "round",
-
                     lineJoin:
                         "round"
-
                 }
-
             ).addTo(map);
-
-
         routeLine.bindPopup(
-
             "🟢 Recommended " +
             "Flood-Safe Route"
-
         );
-
-
         /* -------------------------------------------------
            ZOOM MAP TO ROUTE
         ------------------------------------------------- */
-
         map.fitBounds(
-
             routeLine.getBounds(),
-
             {
-
                 padding: [
                     70,
                     70
                 ]
-
             }
-
         );
-
-
         document.getElementById(
             "routingStatus"
         ).innerText =
-
             "✅ Recommended route follows the real road network.";
-
     }
-
     else {
-
         document.getElementById(
             "routingStatus"
         ).innerText =
-
             "⚠️ Could not load the real road route.";
-
     }
-
 }
-
-
 drawSelectedRoute();
-
-
 {% endif %}
-
-
 /* =========================================================
    FIX MAP SIZE
 ========================================================= */
-
 setTimeout(
-
     function() {
-
         map.invalidateSize();
-
     },
-
     1000
-
 );
-
 </script>
-
-
 </body>
-
 </html>
-                        
-
