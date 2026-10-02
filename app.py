@@ -2,17 +2,33 @@ from flask import Flask, render_template, request
 import psycopg2
 import os
 
-from models import RoadNetwork
+from models import RoadNetwork, Shelter
 
 app = Flask(__name__)
 
-LOCATIONS = [
-    "Nandyal Bus Stand",
-    "Government Hospital",
-    "Railway Station",
-    "Evacuation Center",
-]
-SHELTERS = ("Evacuation Center",)
+# Simulated coordinates (latitude, longitude) around Nandyal
+COORDS = {
+    "Nandyal Bus Stand":        [15.4786, 78.4836],
+    "Government Hospital":      [15.4815, 78.4855],
+    "Railway Station":          [15.4775, 78.4820],
+    "Evacuation Center":        [15.4860, 78.4900],
+    "Kundu River Bank":         [15.4740, 78.4800],
+    "Market Yard":              [15.4800, 78.4800],
+    "Gandhi Chowk":             [15.4830, 78.4820],
+    "Srinivasa Nagar":          [15.4760, 78.4870],
+    "Municipal School Shelter": [15.4850, 78.4840],
+    "Community Hall Shelter":   [15.4790, 78.4900],
+}
+
+# Designated shelters: name -> capacity (people)
+SHELTER_INFO = {
+    "Evacuation Center": 1000,
+    "Municipal School Shelter": 600,
+    "Community Hall Shelter": 400,
+}
+SHELTERS = tuple(SHELTER_INFO.keys())
+
+LOCATIONS = list(COORDS.keys())
 
 _db_ready = False   # database is created only once, not on every page load
 
@@ -56,6 +72,28 @@ def initialize_database():
          "Evacuation Center", 3.0, "low", "open"),
         ("Bus Stand - Evacuation Center", "Nandyal Bus Stand",
          "Evacuation Center", 5.0, "medium", "blocked"),
+        ("River Bank - Railway Station", "Kundu River Bank",
+         "Railway Station", 1.8, "high", "open"),
+        ("River Bank - Market Yard", "Kundu River Bank",
+         "Market Yard", 2.2, "high", "open"),
+        ("Market Yard - Bus Stand", "Market Yard",
+         "Nandyal Bus Stand", 1.5, "medium", "open"),
+        ("Market Yard - Gandhi Chowk", "Market Yard",
+         "Gandhi Chowk", 2.0, "low", "open"),
+        ("Gandhi Chowk - Government Hospital", "Gandhi Chowk",
+         "Government Hospital", 1.2, "low", "open"),
+        ("Gandhi Chowk - Municipal School", "Gandhi Chowk",
+         "Municipal School Shelter", 1.5, "low", "open"),
+        ("Government Hospital - Municipal School", "Government Hospital",
+         "Municipal School Shelter", 1.8, "low", "open"),
+        ("Srinivasa Nagar - Bus Stand", "Srinivasa Nagar",
+         "Nandyal Bus Stand", 1.4, "medium", "open"),
+        ("Srinivasa Nagar - Community Hall", "Srinivasa Nagar",
+         "Community Hall Shelter", 2.5, "low", "open"),
+        ("Community Hall - Evacuation Center", "Community Hall Shelter",
+         "Evacuation Center", 2.0, "low", "open"),
+        ("Railway Station - Srinivasa Nagar", "Railway Station",
+         "Srinivasa Nagar", 1.6, "medium", "open"),
     ]
     for road in sample_roads:
         cur.execute("""
@@ -96,7 +134,10 @@ def load_network():
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return RoadNetwork.from_rows(rows, SHELTERS)
+    network = RoadNetwork.from_rows(rows, SHELTERS)
+    for name, cap in SHELTER_INFO.items():
+        network.shelters[name] = Shelter(name, cap)
+    return network
 
 
 # ---------------------------------------------------------
@@ -108,6 +149,9 @@ def home():
     route = None
     distance = None
     error = None
+    shelter = None
+    resolved_destination = None
+    zones = []
 
     if not _db_ready:
         try:
@@ -132,11 +176,27 @@ def home():
         else:
             try:
                 network = load_network()
-                route, distance = network.find_route(source, destination)
+                if destination == "AUTO":
+                    shelter, route, distance = network.find_nearest_shelter(source)
+                    if shelter:
+                        resolved_destination = shelter.name
+                else:
+                    route, distance = network.find_route(source, destination)
+                    resolved_destination = destination
+                    shelter = network.shelters.get(destination)
                 if route is None:
                     error = "No safe route available between these locations."
             except Exception as e:
                 error = "Route calculation error: " + str(e)
+
+    # Hazard zones and shelters table
+    shelters = []
+    try:
+        network = load_network()
+        zones = list(network.zones.values())
+        shelters = list(network.shelters.values())
+    except Exception:
+        pass
 
     return render_template(
         "index.html",
@@ -145,9 +205,13 @@ def home():
         distance=distance,
         error=error,
         road_statuses=road_statuses,
+        coords=COORDS,
+        resolved_destination=resolved_destination,
+        shelter=shelter,
+        zones=zones,
+        shelters=shelters,
     )
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
