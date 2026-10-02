@@ -1,5 +1,4 @@
-
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 
@@ -638,17 +637,53 @@ L.tileLayer(
 
 
 /* =========================================================
-   LOCATION MARKERS
+   SHOW ONLY SELECTED LOCATION MARKERS
    ========================================================= */
 
-for (var name in locations) {
+var selectedSource =
+    {{ request.form.get('source')|tojson }};
 
-    var marker = L.marker(
-        locations[name]
-    ).addTo(map);
+var selectedDestination =
+    {{ request.form.get('destination')|tojson }};
 
-    marker.bindPopup(
-        "<b>📍 " + name + "</b>"
+
+/* =========================================================
+   STARTING LOCATION MARKER
+   ========================================================= */
+
+if (
+    selectedSource &&
+    locations[selectedSource]
+) {
+
+    L.marker(
+        locations[selectedSource]
+    )
+    .addTo(map)
+    .bindPopup(
+        "<b>🟢 Starting Point</b><br>" +
+        selectedSource
+    );
+
+}
+
+
+/* =========================================================
+   DESTINATION MARKER
+   ========================================================= */
+
+if (
+    selectedDestination &&
+    locations[selectedDestination]
+) {
+
+    L.marker(
+        locations[selectedDestination]
+    )
+    .addTo(map)
+    .bindPopup(
+        "<b>🔴 Destination</b><br>" +
+        selectedDestination
     );
 
 }
@@ -1026,29 +1061,9 @@ async function drawSelectedRoute() {
 
     if (allCoordinates.length > 1) {
 
-        var routeLine =
-            L.polyline(
-
-                allCoordinates,
-
-                {
-                    color: "#00ff00",
-
-                    weight: 9,
-
-                    opacity: 1,
-
-                    lineCap: "round",
-
-                    lineJoin: "round"
-                }
-
-            ).addTo(map);
-
-
         /*
-           Add white border effect
-           behind green route
+           Draw black border first
+           so the green route is clear.
         */
 
         var routeBorder =
@@ -1068,15 +1083,32 @@ async function drawSelectedRoute() {
                     lineJoin: "round"
                 }
 
-            );
+            ).addTo(map);
 
 
         /*
-           Put black border below
-           green route
+           Draw green recommended route
         */
 
-        routeBorder.addTo(map);
+        var routeLine =
+            L.polyline(
+
+                allCoordinates,
+
+                {
+                    color: "#00ff00",
+
+                    weight: 9,
+
+                    opacity: 1,
+
+                    lineCap: "round",
+
+                    lineJoin: "round"
+                }
+
+            ).addTo(map);
+
 
         routeLine.bringToFront();
 
@@ -1146,5 +1178,13 @@ setTimeout(function() {
 
 
 </body>
-</html>           
-            
+</html>
+        
+
+        
+    
+                    
+
+
+
+        
