@@ -6,26 +6,33 @@ import os
 app = Flask(__name__)
 
 
-# ==========================================
+# =========================================================
 # DATABASE CONNECTION
-# ==========================================
+# =========================================================
 
 def get_connection():
+
     db_url = os.environ.get("DATABASE_URL")
 
     if not db_url:
-        raise Exception("DATABASE_URL is not configured on Render.")
+        raise Exception(
+            "DATABASE_URL is not configured on Render."
+        )
 
     # Render may provide postgres://
     if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
+        db_url = db_url.replace(
+            "postgres://",
+            "postgresql://",
+            1
+        )
 
     return psycopg2.connect(db_url)
 
 
-# ==========================================
+# =========================================================
 # CREATE DATABASE TABLE + SAMPLE DATA
-# ==========================================
+# =========================================================
 
 def initialize_database():
 
@@ -44,8 +51,12 @@ def initialize_database():
         )
     """)
 
-    # Sample road network
+    # -----------------------------------------------------
+    # SAMPLE ROAD NETWORK
+    # -----------------------------------------------------
+
     roads = [
+
         (
             "Bus Stand - Government Hospital",
             "Nandyal Bus Stand",
@@ -54,6 +65,7 @@ def initialize_database():
             "low",
             "open"
         ),
+
         (
             "Government Hospital - Railway Station",
             "Government Hospital",
@@ -62,6 +74,7 @@ def initialize_database():
             "medium",
             "open"
         ),
+
         (
             "Railway Station - Evacuation Center",
             "Railway Station",
@@ -70,6 +83,7 @@ def initialize_database():
             "low",
             "open"
         ),
+
         (
             "Bus Stand - Railway Station",
             "Nandyal Bus Stand",
@@ -78,6 +92,7 @@ def initialize_database():
             "high",
             "open"
         ),
+
         (
             "Government Hospital - Evacuation Center",
             "Government Hospital",
@@ -86,6 +101,7 @@ def initialize_database():
             "low",
             "open"
         ),
+
         (
             "Bus Stand - Evacuation Center",
             "Nandyal Bus Stand",
@@ -95,6 +111,10 @@ def initialize_database():
             "blocked"
         )
     ]
+
+    # -----------------------------------------------------
+    # INSERT SAMPLE DATA
+    # -----------------------------------------------------
 
     for road in roads:
 
@@ -109,7 +129,9 @@ def initialize_database():
                 road_status
             )
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (road_name) DO NOTHING
+
+            ON CONFLICT (road_name)
+            DO NOTHING
         """, road)
 
     conn.commit()
@@ -118,9 +140,9 @@ def initialize_database():
     conn.close()
 
 
-# ==========================================
+# =========================================================
 # GET ROAD STATUS
-# ==========================================
+# =========================================================
 
 def get_road_status():
 
@@ -147,9 +169,9 @@ def get_road_status():
     return roads
 
 
-# ==========================================
+# =========================================================
 # FIND SAFE EVACUATION ROUTE
-# ==========================================
+# =========================================================
 
 def find_route(source, destination):
 
@@ -171,136 +193,281 @@ def find_route(source, destination):
     cursor.close()
     conn.close()
 
+    # -----------------------------------------------------
+    # CREATE NETWORKX GRAPH
+    # -----------------------------------------------------
+
     G = nx.Graph()
 
-    for start, end, distance, flood_level, status in roads:
+    for (
+        start,
+        end,
+        distance,
+        flood_level,
+        status
+    ) in roads:
 
-        status = str(status).strip().lower()
-        flood_level = str(flood_level).strip().lower()
+        status = str(
+            status
+        ).strip().lower()
 
-        # Ignore blocked roads
+        flood_level = str(
+            flood_level
+        ).strip().lower()
+
+        # -----------------------------------------------
+        # BLOCKED ROAD
+        # -----------------------------------------------
+
         if status == "blocked":
             continue
 
-        # Flood-risk penalty
+        # -----------------------------------------------
+        # FLOOD PENALTY
+        # -----------------------------------------------
+
         if flood_level == "low":
-            risk_penalty = 0
-        elif flood_level == "medium":
-            risk_penalty = 10
-        elif flood_level == "high":
-            risk_penalty = 50
-        else:
+
             risk_penalty = 0
 
-        route_cost = float(distance) + risk_penalty
+        elif flood_level == "medium":
+
+            risk_penalty = 10
+
+        elif flood_level == "high":
+
+            risk_penalty = 50
+
+        else:
+
+            risk_penalty = 0
+
+        distance_value = float(distance)
+
+        # ------------------------------------------------
+        # NETWORKX COST
+        # ------------------------------------------------
+
+        route_cost = (
+            distance_value +
+            risk_penalty
+        )
 
         G.add_edge(
+
             start,
+
             end,
+
             weight=route_cost,
-            distance=float(distance)
+
+            distance=distance_value
+
         )
+
+    # =====================================================
+    # FIND ROUTE
+    # =====================================================
 
     try:
 
         route = nx.shortest_path(
+
             G,
+
             source=source,
+
             target=destination,
+
             weight="weight"
+
         )
 
-        total_cost = nx.shortest_path_length(
-            G,
-            source=source,
-            target=destination,
-            weight="weight"
-        )
-
-        return route, total_cost
-
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
+    except (
+        nx.NetworkXNoPath,
+        nx.NodeNotFound
+    ):
 
         return None, None
 
+    # =====================================================
+    # CALCULATE REAL DISTANCE FROM DATABASE
+    # =====================================================
 
-# ==========================================
+    total_distance = 0.0
+
+    for i in range(
+        len(route) - 1
+    ):
+
+        start = route[i]
+
+        end = route[i + 1]
+
+        edge_data = G.get_edge_data(
+            start,
+            end
+        )
+
+        if edge_data:
+
+            total_distance += float(
+                edge_data["distance"]
+            )
+
+    return route, total_distance
+
+
+# =========================================================
 # HOME PAGE
-# ==========================================
+# =========================================================
 
 @app.route("/", methods=["GET", "POST"])
 def home():
 
     route = None
+
     distance = None
+
     error = None
 
+    # -----------------------------------------------------
+    # CURRENT PROJECT LOCATIONS
+    # -----------------------------------------------------
+
     locations = [
+
         "Nandyal Bus Stand",
+
         "Government Hospital",
+
         "Railway Station",
+
         "Evacuation Center"
+
     ]
 
-    # Initialize database
-    try:
-        initialize_database()
-    except Exception as e:
-        error = "Database error: " + str(e)
+    # -----------------------------------------------------
+    # DATABASE INITIALIZATION
+    # -----------------------------------------------------
 
-    # Get road information
     try:
+
+        initialize_database()
+
+    except Exception as e:
+
+        error = (
+            "Database error: "
+            + str(e)
+        )
+
+    # -----------------------------------------------------
+    # GET ROAD DATA
+    # -----------------------------------------------------
+
+    try:
+
         road_statuses = get_road_status()
+
     except Exception:
+
         road_statuses = []
 
-    # Route form
+    # -----------------------------------------------------
+    # FORM SUBMISSION
+    # -----------------------------------------------------
+
     if request.method == "POST":
 
-        source = request.form.get("source")
-        destination = request.form.get("destination")
+        source = request.form.get(
+            "source"
+        )
+
+        destination = request.form.get(
+            "destination"
+        )
+
+        # -----------------------------------------------
+        # VALIDATION
+        # -----------------------------------------------
 
         if not source or not destination:
 
-            error = "Please select both starting location and destination."
+            error = (
+                "Please select both "
+                "starting location and destination."
+            )
 
         elif source == destination:
 
-            error = "Starting location and destination cannot be the same."
+            error = (
+                "Starting location and "
+                "destination cannot be the same."
+            )
 
         else:
 
             try:
 
                 route, distance = find_route(
+
                     source,
+
                     destination
+
                 )
 
                 if route is None:
-                    error = "No safe route available between these locations."
+
+                    error = (
+                        "No safe route available "
+                        "between these locations."
+                    )
 
             except Exception as e:
 
-                error = "Route calculation error: " + str(e)
+                error = (
+                    "Route calculation error: "
+                    + str(e)
+                )
+
+    # -----------------------------------------------------
+    # SEND DATA TO HTML
+    # -----------------------------------------------------
 
     return render_template(
+
         "index.html",
+
         locations=locations,
+
         route=route,
+
         distance=distance,
+
         error=error,
+
         road_statuses=road_statuses
+
     )
 
 
-# ==========================================
+# =========================================================
 # START SERVER
-# ==========================================
+# =========================================================
 
 if __name__ == "__main__":
 
     app.run(
+
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000))
+
+        port=int(
+            os.environ.get(
+                "PORT",
+                5000
+            )
+        )
+
     )
