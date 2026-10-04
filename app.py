@@ -102,6 +102,21 @@ def initialize_database():
             VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (road_name) DO NOTHING
         """, road)
+
+    # Shelters table: capacity and how many people are already assigned
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS shelters (
+            name VARCHAR(100) PRIMARY KEY,
+            capacity INTEGER NOT NULL,
+            occupied INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    for name, cap in SHELTER_INFO.items():
+        cur.execute("""
+            INSERT INTO shelters (name, capacity, occupied)
+            VALUES (%s, %s, 0)
+            ON CONFLICT (name) DO NOTHING
+        """, (name, cap))
     conn.commit()
     cur.close()
     conn.close()
@@ -132,12 +147,24 @@ def load_network():
         FROM roads
     """)
     rows = cur.fetchall()
+    cur.execute("SELECT name, capacity, occupied FROM shelters")
+    shelter_rows = cur.fetchall()
     cur.close()
     conn.close()
     network = RoadNetwork.from_rows(rows, SHELTERS)
-    for name, cap in SHELTER_INFO.items():
-        network.shelters[name] = Shelter(name, cap)
+    for name, cap, occ in shelter_rows:
+        network.shelters[name] = Shelter(name, cap, occ)
     return network
+
+
+def save_shelter_occupancy(shelter):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE shelters SET occupied = %s WHERE name = %s",
+                (shelter.occupied, shelter.name))
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def update_road_state(road_name, flood_level, status):
@@ -179,13 +206,46 @@ def update_road_state(road_name, flood_level, status):
 def admin():
     message = request.args.get("msg")
     error = request.args.get("err")
+    shelters = []
     try:
         roads = get_road_status()
+        shelters = list(load_network().shelters.values())
     except Exception as e:
         roads = []
         error = "Database error: " + str(e)
-    return render_template("admin.html", roads=roads,
+    return render_template("admin.html", roads=roads, shelters=shelters,
                            message=message, error=error)
+
+
+@app.route("/reset_shelters", methods=["POST"])
+def reset_shelters():
+    """Empty all shelters (e.g. when an emergency is over)."""
+    try:
+        network = load_network()
+        for shelter in network.shelters.values():
+            shelter.reset()
+            save_shelter_occupancy(shelter)
+        return redirect(url_for("admin", msg="All shelters reset to empty"))
+    except Exception as e:
+        return redirect(url_for("admin", err=str(e)))
+
+
+@app.route("/confirm_evacuation", methods=["POST"])
+def confirm_evacuation():
+    """Reserve places in the shelter chosen by the route search."""
+    name = request.form.get("shelter")
+    try:
+        people = int(request.form.get("people", "1"))
+        network = load_network()
+        shelter = network.shelters.get(name)
+        if shelter is None:
+            raise ValueError("Unknown shelter")
+        shelter.assign(people)               # raises if no room
+        save_shelter_occupancy(shelter)
+        return redirect(url_for(
+            "home", done=f"{people} people assigned to {name}"))
+    except Exception as e:
+        return redirect(url_for("home", fail=str(e)))
 
 
 @app.route("/update_road", methods=["POST"])
@@ -212,6 +272,10 @@ def home():
     shelter = None
     resolved_destination = None
     zones = []
+    people = 1
+    message = request.args.get("done")
+    if request.args.get("fail"):
+        error = request.args.get("fail")
 
     if not _db_ready:
         try:
@@ -228,6 +292,10 @@ def home():
     if request.method == "POST":
         source = request.form.get("source")
         destination = request.form.get("destination")
+        try:
+            people = max(int(request.form.get("people", "1")), 1)
+        except ValueError:
+            people = 1
 
         if not source or not destination:
             error = "Please select both starting location and destination."
@@ -237,14 +305,24 @@ def home():
             try:
                 network = load_network()
                 if destination == "AUTO":
-                    shelter, route, distance = network.find_nearest_shelter(source)
+                    shelter, route, distance = network.find_nearest_shelter(
+                        source, people)
                     if shelter:
                         resolved_destination = shelter.name
+                    else:
+                        error = ("No reachable shelter has room for "
+                                 f"{people} people.")
                 else:
-                    route, distance = network.find_route(source, destination)
-                    resolved_destination = destination
-                    shelter = network.shelters.get(destination)
-                if route is None:
+                    target = network.shelters.get(destination)
+                    if target is not None and not target.can_fit(people):
+                        error = (f"{destination} has only "
+                                 f"{target.available()} places left.")
+                    else:
+                        route, distance = network.find_route(
+                            source, destination)
+                        resolved_destination = destination
+                        shelter = target
+                if route is None and not error:
                     error = "No safe route available between these locations."
             except Exception as e:
                 error = "Route calculation error: " + str(e)
@@ -270,6 +348,8 @@ def home():
         shelter=shelter,
         zones=zones,
         shelters=shelters,
+        people=people,
+        message=message,
     )
 
 
