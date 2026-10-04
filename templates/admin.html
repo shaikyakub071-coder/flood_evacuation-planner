@@ -106,6 +106,38 @@
             </tbody>
         </table>
     </div>
+
+    <div class="road-box" style="margin-top:25px;">
+        <h2 style="color:#38bdf8;margin-top:0;">🏠 Shelter Occupancy</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Shelter</th>
+                    <th>Capacity</th>
+                    <th>Occupied</th>
+                    <th>Free</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for s in shelters %}
+                <tr>
+                    <td>{{ s.name }}</td>
+                    <td>{{ s.capacity }}</td>
+                    <td>{{ s.occupied }}</td>
+                    <td class="{{ 'high' if s.is_full() else 'low' }}">
+                        {{ s.available() }}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <form method="POST" action="/reset_shelters">
+            <button class="save-btn" type="submit"
+                    style="margin-top:15px;background:#dc2626;">
+                Reset all shelters to empty
+            </button>
+        </form>
+    </div>
 </div>
 </body>
 </html>
