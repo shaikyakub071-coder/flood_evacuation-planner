@@ -294,6 +294,8 @@ def home():
     resolved_destination = None
     zones = []
     people = 1
+    route_risk = risk_label = None
+    alt_route = alt_distance = alt_risk = alt_risk_label = None
     message = request.args.get("done")
     if request.args.get("fail"):
         error = request.args.get("fail")
@@ -345,6 +347,15 @@ def home():
                         shelter = target
                 if route is None and not error:
                     error = "No safe route available between these locations."
+                if route:
+                    graph = network.build_graph()
+                    route_risk = network.route_risk(route, graph)
+                    risk_label = network.risk_label(route_risk)
+                    alt = network.find_alternative_route(
+                        source, resolved_destination, graph)
+                    if alt:
+                        alt_route, alt_distance, alt_risk = alt
+                        alt_risk_label = network.risk_label(alt_risk)
             except Exception as e:
                 error = "Route calculation error: " + str(e)
 
@@ -371,6 +382,12 @@ def home():
         shelters=shelters,
         people=people,
         message=message,
+        route_risk=route_risk,
+        risk_label=risk_label,
+        alt_route=alt_route,
+        alt_distance=alt_distance,
+        alt_risk=alt_risk,
+        alt_risk_label=alt_risk_label,
     )
 
 
