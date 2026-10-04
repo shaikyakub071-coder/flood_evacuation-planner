@@ -473,6 +473,32 @@
         km
     </div>
     {% endif %}
+    {% if route_risk is not none %}
+    <div class="distance">
+        ⚠️ Flood Risk Score: {{ route_risk }}
+        ({{ risk_label }})
+    </div>
+    {% endif %}
+    {% if alt_route %}
+    <div style="margin-top:20px;padding:15px;background:#0f172a;
+                border:1px dashed #f59e0b;border-radius:8px;">
+        <h3 style="margin:0 0 10px;color:#f59e0b;">
+            🟠 Alternative Route (backup)
+        </h3>
+        <div style="color:#cbd5e1;">
+            {{ alt_route|join(' → ') }}
+        </div>
+        <div style="margin-top:10px;color:#38bdf8;font-weight:bold;">
+            📏 {{ "%.2f"|format(alt_distance) }} km
+            &nbsp;|&nbsp;
+            ⚠️ Risk {{ alt_risk }} ({{ alt_risk_label }})
+        </div>
+    </div>
+    {% elif route %}
+    <p style="color:#94a3b8;margin-top:15px;">
+        No alternative route exists. This is the only safe way out.
+    </p>
+    {% endif %}
     <p
         style="
             color:#94a3b8;
@@ -509,6 +535,9 @@
         </div>
         <div class="legend-item">
             🟢 Recommended Flood-Safe Route
+        </div>
+        <div class="legend-item">
+            🟠 Alternative Route
         </div>
     </div>
 </div>
@@ -905,6 +934,42 @@ async function drawSelectedRoute() {
 drawSelectedRoute();
 {% endif %}
 /* =========================================================
+   DRAW ALTERNATIVE ROUTE (orange, dashed)
+========================================================= */
+{% if alt_route %}
+var alternativeRoute = [
+{% for place in alt_route %}
+    {{ place|tojson }}
+    {% if not loop.last %},{% endif %}
+{% endfor %}
+];
+async function drawAlternativeRoute() {
+    var coords = [];
+    for (var i = 0; i < alternativeRoute.length - 1; i++) {
+        var geometry = await getRealRoadGeometry(
+            alternativeRoute[i],
+            alternativeRoute[i + 1]
+        );
+        if (geometry) {
+            if (coords.length > 0) {
+                geometry.shift();
+            }
+            coords = coords.concat(geometry);
+        }
+    }
+    if (coords.length > 1) {
+        L.polyline(coords, {
+            color: "#f59e0b",
+            weight: 5,
+            opacity: 0.9,
+            dashArray: "10, 10"
+        }).addTo(map)
+          .bindPopup("🟠 Alternative Route");
+    }
+}
+drawAlternativeRoute();
+{% endif %}
+/* =========================================================
    FIX MAP SIZE
 ========================================================= */
 setTimeout(
@@ -917,4 +982,4 @@ setTimeout(
 </body>
 </html>
 
-            
+                    
