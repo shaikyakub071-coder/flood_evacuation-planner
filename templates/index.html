@@ -388,6 +388,21 @@
                     {% endfor %}
                 </select>
             </div>
+            <!-- PEOPLE TO EVACUATE -->
+            <div class="form-group" style="min-width:150px;max-width:200px;">
+                <label>
+                    People to Evacuate
+                </label>
+                <input
+                    type="number"
+                    name="people"
+                    min="1"
+                    value="{{ people }}"
+                    style="width:100%;padding:12px;border-radius:7px;
+                           border:1px solid #475569;background:#0f172a;
+                           color:white;font-size:15px;"
+                >
+            </div>
             <!-- BUTTON -->
             <div>
                 <button
@@ -408,6 +423,12 @@
     ❌ {{ error }}
 </div>
 {% endif %}
+{% if message %}
+<div style="background:#14532d;color:#bbf7d0;padding:15px;
+            border-radius:8px;margin-bottom:20px;">
+    ✅ {{ message }}
+</div>
+{% endif %}
 <!-- =====================================================
      ROUTE RESULT
 ====================================================== -->
@@ -426,8 +447,19 @@
     {% if shelter %}
     <div class="distance">
         🏠 Assigned Shelter: {{ shelter.name }}
-        (capacity {{ shelter.capacity }})
+        ({{ shelter.available() }} of {{ shelter.capacity }} places free)
     </div>
+    <form method="POST" action="/confirm_evacuation">
+        <input type="hidden" name="shelter" value="{{ shelter.name }}">
+        <input type="hidden" name="people" value="{{ people }}">
+        <button
+            class="search-btn"
+            type="submit"
+            style="margin-top:15px;background:#16a34a;"
+        >
+            ✅ Confirm: Send {{ people }} people to this shelter
+        </button>
+    </form>
     {% endif %}
     {% if distance is not none %}
     <div class="distance">
@@ -557,7 +589,10 @@
             <tr>
                 <td>{{ sh.name }}</td>
                 <td>Shelter</td>
-                <td>Capacity {{ sh.capacity }}</td>
+                <td class="{{ 'high' if sh.is_full() else 'low' }}">
+                    {{ sh.occupied }} / {{ sh.capacity }} occupied
+                    ({{ sh.available() }} free)
+                </td>
             </tr>
         {% endfor %}
         </tbody>
@@ -877,7 +912,4 @@ setTimeout(
 </body>
 </html>
 
-        
-                               
-        
         
