@@ -153,8 +153,32 @@ class RoadNetwork:
                 continue                      # blocked / submerged road
             graph.add_edge(road.start, road.end,
                            weight=road.cost(),
-                           distance=road.distance_km)
+                           distance=road.distance_km,
+                           risk=road.risk_penalty())
         return graph
+
+    # ---- risk helpers ---------------------------------------------------
+    def route_risk(self, route, graph=None):
+        """Total flood-risk score of a route (sum of road penalties).
+        0 means every road on the route has a low flood level."""
+        if not route:
+            return None
+        if graph is None:
+            graph = self.build_graph()
+        return sum(graph[a][b]["risk"] for a, b in zip(route, route[1:]))
+
+    @staticmethod
+    def risk_label(score):
+        """Plain-words label for a route risk score."""
+        if score is None:
+            return ""
+        if score == 0:
+            return "Very safe"
+        if score <= 20:
+            return "Low risk"
+        if score <= 50:
+            return "Moderate risk"
+        return "High risk"
 
     # ---- routing --------------------------------------------------------
     def find_route(self, source, destination, graph=None):
@@ -170,6 +194,21 @@ class RoadNetwork:
         total = sum(graph[a][b]["distance"]
                     for a, b in zip(route, route[1:]))
         return route, total
+
+    def find_alternative_route(self, source, destination, graph=None):
+        """Second-best route (different from the best one).
+        Returns (route, km, risk) or None if there is no other route."""
+        if graph is None:
+            graph = self.build_graph()
+        try:
+            paths = nx.shortest_simple_paths(graph, source, destination,
+                                             weight="weight")
+            next(paths)                       # skip the best route
+            alt = next(paths)                 # the next-best one
+        except (nx.NetworkXNoPath, nx.NodeNotFound, StopIteration):
+            return None
+        km = sum(graph[a][b]["distance"] for a, b in zip(alt, alt[1:]))
+        return alt, km, self.route_risk(alt, graph)
 
     def find_nearest_shelter(self, source, people=1, graph=None):
         """Best reachable shelter with enough free places for `people`:
