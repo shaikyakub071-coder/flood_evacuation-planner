@@ -14,7 +14,8 @@ import networkx as nx
 class Road:
     """A road between two locations. Its state can change at any time."""
 
-    FLOOD_PENALTY = {"low": 0, "medium": 10, "high": 50}
+    # "submerged" = road is under water, so it can never be used.
+    FLOOD_PENALTY = {"low": 0, "medium": 10, "high": 50, "submerged": 1000}
 
     def __init__(self, name, start, end, distance_km,
                  flood_level="low", status="open"):
@@ -35,14 +36,17 @@ class Road:
     def set_flood_level(self, level):
         level = str(level).strip().lower()
         if level not in self.FLOOD_PENALTY:
-            raise ValueError("flood level must be low, medium or high")
+            raise ValueError(
+                "flood level must be low, medium, high or submerged")
         self.flood_level = level
-        # A road with a high flood level is treated as submerged
-        # only if you block it yourself; high just costs a big penalty.
 
     # ---- routing helpers -----------------------------------------------
+    def is_submerged(self):
+        return self.flood_level == "submerged"
+
     def is_passable(self):
-        return self.status != "blocked"
+        """A road is unusable if it is blocked OR submerged."""
+        return self.status != "blocked" and not self.is_submerged()
 
     def risk_penalty(self):
         return self.FLOOD_PENALTY.get(self.flood_level, 0)
@@ -70,7 +74,7 @@ class Shelter:
 class HazardZone:
     """A flood-prone location. Its danger = the worst flood on its roads."""
 
-    ORDER = ["low", "medium", "high"]
+    ORDER = ["low", "medium", "high", "submerged"]
 
     def __init__(self, name):
         self.name = name
