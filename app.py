@@ -261,6 +261,27 @@ def update_road():
 
 
 # ---------------------------------------------------------
+# EVACUATE ALL ZONES (authorities see every zone's best route)
+# ---------------------------------------------------------
+@app.route("/evacuate-all")
+def evacuate_all():
+    min_risk = request.args.get("risk", "high")
+    if min_risk not in ("medium", "high", "submerged"):
+        min_risk = "high"
+    plan = []
+    error = None
+    try:
+        network = load_network()
+        plan = network.evacuation_plan(min_risk)
+    except Exception as e:
+        error = "Could not build the evacuation plan: " + str(e)
+    stranded = [p for p in plan if p["shelter"] is None]
+    return render_template("evacuate_all.html", plan=plan,
+                           min_risk=min_risk, stranded=stranded,
+                           error=error)
+
+
+# ---------------------------------------------------------
 # HOME PAGE
 # ---------------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
