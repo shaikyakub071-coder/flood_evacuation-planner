@@ -1,8 +1,8 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for
 import psycopg2
 import os
 
-from models import RoadNetwork, Shelter
+from models import Road, RoadNetwork, Shelter
 
 app = Flask(__name__)
 
@@ -138,6 +138,66 @@ def load_network():
     for name, cap in SHELTER_INFO.items():
         network.shelters[name] = Shelter(name, cap)
     return network
+
+
+def update_road_state(road_name, flood_level, status):
+    """Change a road's dynamic state using the Road OOP methods,
+    then save the new state to the database."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT road_name, start_location, end_location,
+               distance_km, flood_level, road_status
+        FROM roads WHERE road_name = %s
+    """, (road_name,))
+    row = cur.fetchone()
+    if row is None:
+        cur.close()
+        conn.close()
+        raise ValueError("Road not found: " + road_name)
+
+    road = Road(*row)                    # build the OOP object
+    road.set_flood_level(flood_level)    # validates the level
+    if status == "blocked":
+        road.block()
+    else:
+        road.open()
+
+    cur.execute("""
+        UPDATE roads SET flood_level = %s, road_status = %s
+        WHERE road_name = %s
+    """, (road.flood_level, road.status, road.name))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+# ---------------------------------------------------------
+# ADMIN PAGE (authorities update flood / road conditions)
+# ---------------------------------------------------------
+@app.route("/admin")
+def admin():
+    message = request.args.get("msg")
+    error = request.args.get("err")
+    try:
+        roads = get_road_status()
+    except Exception as e:
+        roads = []
+        error = "Database error: " + str(e)
+    return render_template("admin.html", roads=roads,
+                           message=message, error=error)
+
+
+@app.route("/update_road", methods=["POST"])
+def update_road():
+    road_name = request.form.get("road_name")
+    flood_level = request.form.get("flood_level")
+    status = request.form.get("status")
+    try:
+        update_road_state(road_name, flood_level, status)
+        return redirect(url_for("admin", msg="Updated: " + road_name))
+    except Exception as e:
+        return redirect(url_for("admin", err=str(e)))
 
 
 # ---------------------------------------------------------
