@@ -171,10 +171,12 @@ class RoadNetwork:
                     for a, b in zip(route, route[1:]))
         return route, total
 
-    def find_nearest_shelter(self, source, people=1):
+    def find_nearest_shelter(self, source, people=1, graph=None):
         """Best reachable shelter with enough free places for `people`:
-        returns (shelter, route, km). Full shelters are skipped."""
-        graph = self.build_graph()            # built ONCE, reused below
+        returns (shelter, route, km). Full shelters are skipped.
+        Pass a pre-built graph to avoid rebuilding it."""
+        if graph is None:
+            graph = self.build_graph()        # built once, reused below
         best = None
         for shelter in self.shelters.values():
             if not shelter.can_fit(people):
@@ -189,4 +191,26 @@ class RoadNetwork:
             return None, None, None
         return best[1], best[2], best[3]
 
-    
+    def evacuation_plan(self, min_risk="high", people=1):
+        """Safest route from EVERY hazard zone at or above `min_risk`
+        to its best shelter. Returns a list of dicts, most dangerous
+        zones first. A zone with no safe route has shelter=None."""
+        order = HazardZone.ORDER
+        threshold = order.index(min_risk)
+        graph = self.build_graph()            # built once for all zones
+        plan = []
+        for zone in self.zones.values():
+            level = zone.risk_level()
+            if order.index(level) < threshold:
+                continue
+            shelter, route, km = self.find_nearest_shelter(
+                zone.name, people, graph)
+            plan.append({
+                "zone": zone.name,
+                "risk": level,
+                "shelter": shelter.name if shelter else None,
+                "route": route,
+                "distance": km,
+            })
+        plan.sort(key=lambda p: (-order.index(p["risk"]), p["zone"]))
+        return plan
