@@ -63,12 +63,37 @@ class Road:
 class Shelter:
     """A designated safe place people are evacuated to."""
 
-    def __init__(self, name, capacity=500):
+    def __init__(self, name, capacity=500, occupied=0):
         self.name = name
-        self.capacity = capacity
+        self.capacity = int(capacity)
+        self.occupied = int(occupied)
+
+    # ---- dynamic state -------------------------------------------------
+    def available(self):
+        """Free places left in this shelter."""
+        return max(self.capacity - self.occupied, 0)
+
+    def is_full(self):
+        return self.available() == 0
+
+    def can_fit(self, people):
+        return self.available() >= people
+
+    def assign(self, people):
+        """Reserve places for evacuees. Raises if there is no room."""
+        if people < 1:
+            raise ValueError("number of people must be at least 1")
+        if not self.can_fit(people):
+            raise ValueError(
+                f"{self.name} has only {self.available()} places left")
+        self.occupied += people
+
+    def reset(self):
+        self.occupied = 0
 
     def __repr__(self):
-        return f"Shelter({self.name}, capacity={self.capacity})"
+        return (f"Shelter({self.name}, {self.occupied}/{self.capacity} "
+                f"occupied)")
 
 
 class HazardZone:
@@ -132,9 +157,11 @@ class RoadNetwork:
         return graph
 
     # ---- routing --------------------------------------------------------
-    def find_route(self, source, destination):
-        """Returns (route_list, total_km) or (None, None)."""
-        graph = self.build_graph()
+    def find_route(self, source, destination, graph=None):
+        """Returns (route_list, total_km) or (None, None).
+        Pass a pre-built graph to avoid rebuilding it."""
+        if graph is None:
+            graph = self.build_graph()
         try:
             route = nx.shortest_path(graph, source, destination,
                                      weight="weight")
@@ -144,17 +171,22 @@ class RoadNetwork:
                     for a, b in zip(route, route[1:]))
         return route, total
 
-    def find_nearest_shelter(self, source):
-        """Best reachable shelter from a location: (shelter, route, km)."""
+    def find_nearest_shelter(self, source, people=1):
+        """Best reachable shelter with enough free places for `people`:
+        returns (shelter, route, km). Full shelters are skipped."""
+        graph = self.build_graph()            # built ONCE, reused below
         best = None
         for shelter in self.shelters.values():
-            route, km = self.find_route(source, shelter.name)
+            if not shelter.can_fit(people):
+                continue                      # shelter is full / too small
+            route, km = self.find_route(source, shelter.name, graph)
             if route is None:
                 continue
-            graph = self.build_graph()
             cost = nx.path_weight(graph, route, "weight")
             if best is None or cost < best[0]:
                 best = (cost, shelter, route, km)
         if best is None:
             return None, None, None
         return best[1], best[2], best[3]
+
+    
