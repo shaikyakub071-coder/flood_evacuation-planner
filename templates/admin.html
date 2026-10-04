@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Road & Flood Control</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Arial, sans-serif;
+               background: #0f172a; color: white; }
+        .header { background: linear-gradient(135deg, #0f172a, #1e293b);
+                  padding: 25px; text-align: center;
+                  border-bottom: 2px solid #334155; }
+        .header h1 { margin: 0; color: #38bdf8; font-size: 30px; }
+        .header p { color: #cbd5e1; margin-top: 8px; }
+        .container { width: 95%; max-width: 1200px; margin: 25px auto; }
+        a.back { color: #38bdf8; text-decoration: none; font-weight: bold; }
+        .msg { background: #14532d; color: #bbf7d0; padding: 15px;
+               border-radius: 8px; margin-bottom: 20px; }
+        .err { background: #7f1d1d; color: #fecaca; padding: 15px;
+               border-radius: 8px; margin-bottom: 20px; }
+        .road-box { background: #1e293b; padding: 20px;
+                    border-radius: 12px; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #334155; padding: 12px; }
+        td { padding: 10px; text-align: center;
+             border-bottom: 1px solid #475569; }
+        select { padding: 8px; border-radius: 6px;
+                 border: 1px solid #475569;
+                 background: #0f172a; color: white; }
+        .save-btn { padding: 8px 16px; background: #0284c7; color: white;
+                    border: none; border-radius: 6px; font-weight: bold;
+                    cursor: pointer; }
+        .save-btn:hover { background: #0369a1; }
+        .low, .open { color: #22c55e; font-weight: bold; }
+        .medium { color: #f59e0b; font-weight: bold; }
+        .high, .blocked { color: #ef4444; font-weight: bold; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>🛠️ Admin: Road & Flood Control</h1>
+    <p>Update flood levels and block or open roads. Routes change instantly.</p>
+</div>
+
+<div class="container">
+    <p><a class="back" href="/">← Back to Route Planner</a></p>
+
+    {% if message %}<div class="msg">✅ {{ message }}</div>{% endif %}
+    {% if error %}<div class="err">❌ {{ error }}</div>{% endif %}
+
+    <div class="road-box">
+        <table>
+            <thead>
+                <tr>
+                    <th>Road</th>
+                    <th>Distance (km)</th>
+                    <th>Current Flood</th>
+                    <th>Current Status</th>
+                    <th>New Flood Level</th>
+                    <th>New Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for road in roads %}
+                <tr>
+                    <form method="POST" action="/update_road">
+                        <td>
+                            {{ road[0] }}
+                            <input type="hidden" name="road_name"
+                                   value="{{ road[0] }}">
+                        </td>
+                        <td>{{ road[3] }}</td>
+                        <td class="{{ road[4]|lower }}">{{ road[4]|upper }}</td>
+                        <td class="{{ road[5]|lower }}">{{ road[5]|upper }}</td>
+                        <td>
+                            <select name="flood_level">
+                                {% for lvl in ['low', 'medium', 'high'] %}
+                                <option value="{{ lvl }}"
+                                    {% if road[4] == lvl %}selected{% endif %}>
+                                    {{ lvl|capitalize }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <select name="status">
+                                {% for st in ['open', 'blocked'] %}
+                                <option value="{{ st }}"
+                                    {% if road[5] == st %}selected{% endif %}>
+                                    {{ st|capitalize }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td>
+                            <button class="save-btn" type="submit">Save</button>
+                        </td>
+                    </form>
+                </tr>
+            {% else %}
+                <tr><td colspan="7">No road records found.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</body>
+</html>
