@@ -520,19 +520,16 @@
     <div id="map"></div>
     <div id="routingStatus">
         {% if route %}
-        🛰️ Drawing the computed route...
+        🛰️ Drawing the route along real roads...
         {% else %}
         📍 Select a starting location
         and destination.
         {% endif %}
     </div>
-    {% if route %}
     <label style="margin-top:12px;font-weight:normal;cursor:pointer;">
-        <input type="checkbox" id="osrmToggle">
-        Show real-road view (OSRM). It may differ from the
-        computed route.
+        <input type="checkbox" id="networkToggle">
+        Show all roads colored by flood level
     </label>
-    {% endif %}
     <div class="legend">
         <div class="legend-item">
             🔵 Starting Location
@@ -870,41 +867,12 @@ async function getRealRoadGeometry(
     }
 }
 /* =========================================================
-   ROAD NETWORK LAYER
-   Every road in your database, colored by flood level.
-   Grey dashed = blocked. Hover/click a road for details.
+   PLACE MARKERS (always visible)
+   Teal = shelter, grey = other location. Hover for the name.
 ========================================================= */
-var FLOOD_COLORS = {
-    low: "#22c55e",
-    medium: "#f59e0b",
-    high: "#ef4444",
-    submerged: "#a855f7"
-};
-var roadData = [
-{% for r in road_statuses %}
-    [{{ r[1]|tojson }}, {{ r[2]|tojson }}, {{ r[4]|tojson }}, {{ r[5]|tojson }}, {{ r[0]|tojson }}]{% if not loop.last %},{% endif %}
-{% endfor %}
-];
 var shelterNames = {{ shelters|map(attribute='name')|list|tojson }};
-var networkLayer = L.layerGroup().addTo(map);
+var markerLayer = L.layerGroup().addTo(map);
 var allPoints = [];
-roadData.forEach(function(r) {
-    var a = locations[r[0]];
-    var b = locations[r[1]];
-    if (!a || !b) { return; }
-    var flood = String(r[2] || "low").toLowerCase();
-    var blocked = String(r[3] || "").toLowerCase() === "blocked";
-    L.polyline([a, b], {
-        color: blocked ? "#9ca3af" : (FLOOD_COLORS[flood] || "#22c55e"),
-        weight: 3,
-        opacity: 0.75,
-        dashArray: blocked ? "4, 8" : null
-    }).addTo(networkLayer).bindPopup(
-        "<b>" + r[4] + "</b><br>" +
-        "Flood: " + flood.toUpperCase() + "<br>" +
-        "Status: " + String(r[3] || "").toUpperCase()
-    );
-});
 Object.keys(locations).forEach(function(name) {
     var isShelter = shelterNames.indexOf(name) !== -1;
     L.circleMarker(locations[name], {
@@ -913,118 +881,166 @@ Object.keys(locations).forEach(function(name) {
         weight: 2,
         fillColor: isShelter ? "#14b8a6" : "#cbd5e1",
         fillOpacity: 1
-    }).addTo(networkLayer).bindTooltip(
+    }).addTo(markerLayer).bindTooltip(
         (isShelter ? "🏠 " : "📍 ") + name
     );
     allPoints.push(locations[name]);
 });
 /* =========================================================
-   DRAW THE COMPUTED ROUTES
-   These lines follow EXACTLY the nodes your graph chose,
-   so what you see on the map is what the algorithm computed.
+   REAL-ROAD SHAPES
+   Between two stops we ask OSRM for the real road shape, so
+   lines bend with the streets instead of cutting straight
+   across. Results are cached. If OSRM cannot answer, a
+   straight line is used for that piece only.
 ========================================================= */
-function toLatLngs(names) {
-    return names
-        .map(function(n) { return locations[n]; })
-        .filter(Boolean);
+var geomCache = {};
+async function getSegment(a, b) {
+    var key = a + "|" + b;
+    if (!(key in geomCache)) {
+        geomCache[key] = await getRealRoadGeometry(a, b);
+    }
+    var g = geomCache[key];
+    if (g && g.length > 1) {
+        return g.slice();
+    }
+    return [locations[a], locations[b]];      /* fallback */
 }
-var ROUTE_STATUS =
-    "✅ Green line = route computed by the algorithm " +
-    "(avoids blocked and submerged roads).";
-{% if alt_route %}
-var alternativeRoute = [
-{% for place in alt_route %}
-    {{ place|tojson }}
-    {% if not loop.last %},{% endif %}
+async function buildPath(names) {
+    var coords = [];
+    var fallback = false;
+    for (var i = 0; i < names.length - 1; i++) {
+        var seg = await getSegment(names[i], names[i + 1]);
+        if (!geomCache[names[i] + "|" + names[i + 1]]) {
+            fallback = true;
+        }
+        if (coords.length > 0) {
+            seg.shift();                       /* drop duplicate joint */
+        }
+        coords = coords.concat(seg);
+    }
+    return { coords: coords, fallback: fallback };
+}
+var FLOOD_COLORS = {
+    low: "#22c55e",
+    medium: "#f59e0b",
+    high: "#ef4444",
+    submerged: "#a855f7"
+};
+var routeLine = null;
+var ROUTE_OK =
+    "✅ Green line = route computed by the algorithm, " +
+    "drawn along the real roads between its stops.";
+var ROUTE_FALLBACK =
+    "⚠️ Real road shapes could not be loaded for part of " +
+    "the route, so a straight line is shown there. " +
+    "The stops themselves are still correct.";
+/* =========================================================
+   DRAW THE COMPUTED ROUTES
+========================================================= */
+async function drawRoutes() {
+    var status = document.getElementById("routingStatus");
+    var fallback = false;
+{% if route %}
+    var selectedRoute = [
+{% for place in route %}
+        {{ place|tojson }}
+        {% if not loop.last %},{% endif %}
 {% endfor %}
-];
-L.polyline(toLatLngs(alternativeRoute), {
-    color: "#f59e0b",
-    weight: 5,
-    opacity: 0.9,
-    dashArray: "10, 10"
-}).addTo(map).bindPopup("🟠 Alternative Route");
+    ];
+    var path = await buildPath(selectedRoute);
+    fallback = fallback || path.fallback;
+    routeLine = L.polyline(path.coords, {
+        color: "#16ff00",
+        weight: 8,
+        opacity: 1,
+        lineCap: "round",
+        lineJoin: "round"
+    }).addTo(map);
+    routeLine.bindPopup(
+        "🟢 Recommended Flood-Safe Route<br>" +
+        "Flood risk score: {{ route_risk }}"
+    );
+    map.fitBounds(routeLine.getBounds(), { padding: [70, 70] });
+{% endif %}
+{% if alt_route %}
+    var alternativeRoute = [
+{% for place in alt_route %}
+        {{ place|tojson }}
+        {% if not loop.last %},{% endif %}
+{% endfor %}
+    ];
+    var altPath = await buildPath(alternativeRoute);
+    fallback = fallback || altPath.fallback;
+    L.polyline(altPath.coords, {
+        color: "#f59e0b",
+        weight: 5,
+        opacity: 0.9,
+        dashArray: "10, 10"
+    }).addTo(map).bindPopup("🟠 Alternative Route");
 {% endif %}
 {% if route %}
-var selectedRoute = [
-{% for place in route %}
-    {{ place|tojson }}
-    {% if not loop.last %},{% endif %}
+    routeLine.bringToFront();
+    status.innerText = fallback ? ROUTE_FALLBACK : ROUTE_OK;
+{% else %}
+    if (allPoints.length) {
+        map.fitBounds(L.latLngBounds(allPoints), { padding: [40, 40] });
+    }
+{% endif %}
+    if (typeof startMarker !== "undefined" && startMarker) {
+        startMarker.bringToFront();
+    }
+    if (typeof destinationMarker !== "undefined" && destinationMarker) {
+        destinationMarker.bringToFront();
+    }
+}
+drawRoutes();
+/* =========================================================
+   OPTIONAL: FLOOD-COLORED ROAD NETWORK
+   Off by default. Draws every road along its real shape,
+   colored by flood level. Grey dashed = blocked.
+========================================================= */
+var roadData = [
+{% for r in road_statuses %}
+    [{{ r[1]|tojson }}, {{ r[2]|tojson }}, {{ r[4]|tojson }}, {{ r[5]|tojson }}, {{ r[0]|tojson }}]{% if not loop.last %},{% endif %}
 {% endfor %}
 ];
-var routeLine = L.polyline(toLatLngs(selectedRoute), {
-    color: "#16ff00",
-    weight: 8,
-    opacity: 1,
-    lineCap: "round",
-    lineJoin: "round"
-}).addTo(map);
-routeLine.bindPopup(
-    "🟢 Recommended Flood-Safe Route<br>" +
-    "Flood risk score: {{ route_risk }}"
-);
-map.fitBounds(routeLine.getBounds(), { padding: [70, 70] });
-document.getElementById("routingStatus").innerText = ROUTE_STATUS;
-
-/* =========================================================
-   OPTIONAL: REAL ROAD VIEW (OSRM)
-   Off by default. OSRM draws its own best road between
-   the same stops, so it can differ from the computed route.
-========================================================= */
-var osrmLayer = null;
-document.getElementById("osrmToggle").addEventListener(
+var roadsLayer = L.layerGroup();
+var roadsStarted = false;
+document.getElementById("networkToggle").addEventListener(
     "change",
     async function() {
         var status = document.getElementById("routingStatus");
         if (!this.checked) {
-            if (osrmLayer) {
-                map.removeLayer(osrmLayer);
-                osrmLayer = null;
-            }
-            status.innerText = ROUTE_STATUS;
+            map.removeLayer(roadsLayer);
             return;
         }
-        status.innerText = "🛰️ Loading real road geometry...";
-        var coords = [];
-        for (var i = 0; i < selectedRoute.length - 1; i++) {
-            var geometry = await getRealRoadGeometry(
-                selectedRoute[i],
-                selectedRoute[i + 1]
-            );
-            if (geometry) {
-                if (coords.length > 0) { geometry.shift(); }
-                coords = coords.concat(geometry);
-            }
-        }
-        if (coords.length > 1) {
-            osrmLayer = L.polyline(coords, {
-                color: "#38bdf8",
+        roadsLayer.addTo(map);
+        if (roadsStarted) { return; }
+        roadsStarted = true;
+        status.innerText = "🛰️ Loading road network...";
+        for (var i = 0; i < roadData.length; i++) {
+            var r = roadData[i];
+            if (!locations[r[0]] || !locations[r[1]]) { continue; }
+            var seg = await getSegment(r[0], r[1]);
+            var flood = String(r[2] || "low").toLowerCase();
+            var blocked =
+                String(r[3] || "").toLowerCase() === "blocked";
+            L.polyline(seg, {
+                color: blocked ? "#9ca3af"
+                               : (FLOOD_COLORS[flood] || "#22c55e"),
                 weight: 4,
-                opacity: 0.9
-            }).addTo(map);
-            status.innerText =
-                ROUTE_STATUS +
-                " Blue line = real-road view from OSRM " +
-                "(may differ from the computed route).";
-        } else {
-            status.innerText =
-                "⚠️ Could not load real road geometry.";
-            this.checked = false;
+                opacity: 0.8,
+                dashArray: blocked ? "4, 8" : null
+            }).addTo(roadsLayer).bindPopup(
+                "<b>" + r[4] + "</b><br>" +
+                "Flood: " + flood.toUpperCase() + "<br>" +
+                "Status: " + String(r[3] || "").toUpperCase()
+            );
         }
+        if (routeLine) { routeLine.bringToFront(); }
+        status.innerText = "✅ Road network loaded (colored by flood level).";
     }
 );
-{% else %}
-if (allPoints.length) {
-    map.fitBounds(L.latLngBounds(allPoints), { padding: [40, 40] });
-}
-{% endif %}
-/* Keep start / destination markers on top of the road layer */
-if (typeof startMarker !== "undefined" && startMarker) {
-    startMarker.bringToFront();
-}
-if (typeof destinationMarker !== "undefined" && destinationMarker) {
-    destinationMarker.bringToFront();
-}
 /* =========================================================
    FIX MAP SIZE
 ========================================================= */
@@ -1038,5 +1054,4 @@ setTimeout(
 </body>
 </html>
 
-
-                    
+        
