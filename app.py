@@ -282,6 +282,25 @@ def evacuate_all():
 
 
 # ---------------------------------------------------------
+# WEIGHTED EDGES OF A ROUTE (for the weighted-graph view)
+# ---------------------------------------------------------
+def route_edges(route, graph):
+    """One dict per road on the route: distance, flood penalty and
+    the final graph weight (distance + penalty)."""
+    edges = []
+    for a, b in zip(route, route[1:]):
+        data = graph[a][b]
+        edges.append({
+            "from": a,
+            "to": b,
+            "distance": data["distance"],
+            "risk": data["risk"],
+            "weight": data["weight"],
+        })
+    return edges
+
+
+# ---------------------------------------------------------
 # HOME PAGE
 # ---------------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
@@ -296,6 +315,7 @@ def home():
     people = 1
     route_risk = risk_label = None
     alt_route = alt_distance = alt_risk = alt_risk_label = None
+    route_edge_list = alt_edge_list = None
     message = request.args.get("done")
     if request.args.get("fail"):
         error = request.args.get("fail")
@@ -351,11 +371,13 @@ def home():
                     graph = network.build_graph()
                     route_risk = network.route_risk(route, graph)
                     risk_label = network.risk_label(route_risk)
+                    route_edge_list = route_edges(route, graph)
                     alt = network.find_alternative_route(
                         source, resolved_destination, graph)
                     if alt:
                         alt_route, alt_distance, alt_risk = alt
                         alt_risk_label = network.risk_label(alt_risk)
+                        alt_edge_list = route_edges(alt_route, graph)
             except Exception as e:
                 error = "Route calculation error: " + str(e)
 
@@ -388,6 +410,8 @@ def home():
         alt_distance=alt_distance,
         alt_risk=alt_risk,
         alt_risk_label=alt_risk_label,
+        route_edges=route_edge_list,
+        alt_edges=alt_edge_list,
     )
 
 
