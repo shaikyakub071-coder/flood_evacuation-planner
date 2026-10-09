@@ -97,6 +97,20 @@
             font-size: 18px;
         }
 
+        /* ---------- WEIGHTED GRAPH OF A ROUTE (NEW) ---------- */
+        .wg { margin-top: 15px; padding: 15px; background: #0f172a;
+              border-radius: 8px; }
+        .wg h3 { margin: 0 0 12px; color: #38bdf8; }
+        .wg-node { padding: 10px 12px; background: #334155;
+                   border-radius: 20px; font-weight: bold; }
+        .wg-edge { display: flex; align-items: center; gap: 10px;
+                   flex-wrap: wrap; margin: 4px 0 4px 18px;
+                   padding-left: 12px; border-left: 3px solid #38bdf8; }
+        .wg-weight { background: #0284c7; color: white; padding: 4px 10px;
+                     border-radius: 6px; font-weight: bold; }
+        .wg-detail { color: #94a3b8; font-size: 13px; }
+        .wg-total { margin-top: 12px; color: #22c55e; font-weight: bold; }
+
         /* ---------- MAP ---------- */
         .map-container {
             background: #1e293b;
@@ -187,6 +201,28 @@
     </style>
 </head>
 <body>
+
+{# Weighted graph of one route: nodes joined by edges labelled with weight #}
+{% macro weighted_graph(edges, title) %}
+<div class="wg">
+    <h3>{{ title }}</h3>
+    {% for e in edges %}
+    <div class="wg-node">📍 {{ e['from'] }}</div>
+    <div class="wg-edge">
+        <span class="wg-weight">weight {{ "%.1f"|format(e['weight']) }}</span>
+        <span class="wg-detail">
+            {{ "%.1f"|format(e['distance']) }} km + {{ e['risk'] }} flood penalty
+        </span>
+    </div>
+    {% if loop.last %}
+    <div class="wg-node">📍 {{ e['to'] }}</div>
+    {% endif %}
+    {% endfor %}
+    <div class="wg-total">
+        Total weight: {{ "%.1f"|format(edges|sum(attribute='weight')) }}
+    </div>
+</div>
+{% endmacro %}
 
 <!-- HEADER -->
 <div class="header">
@@ -281,6 +317,10 @@
         {% endfor %}
     </ol>
 
+    {% if route_edges %}
+    {{ weighted_graph(route_edges, "🕸️ Weighted Graph of Recommended Route") }}
+    {% endif %}
+
     {% if shelter %}
     <div class="distance">
         🏠 Assigned Shelter: {{ shelter.name }}
@@ -318,6 +358,9 @@
             &nbsp;|&nbsp;
             ⚠️ Risk {{ alt_risk }} ({{ alt_risk_label }})
         </div>
+        {% if alt_edges %}
+        {{ weighted_graph(alt_edges, "🕸️ Weighted Graph of Alternative Route") }}
+        {% endif %}
     </div>
     {% elif route %}
     <p style="color:#94a3b8;margin-top:15px;">
