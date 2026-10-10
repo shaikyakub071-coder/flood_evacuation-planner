@@ -237,6 +237,9 @@
             🚨 Evacuate All Zones
         </a>
     </p>
+    <p id="liveBar" style="font-size:14px;color:#94a3b8;">
+        ⏳ Connecting to live updates...
+    </p>
 </div>
 
 <div class="container">
@@ -244,7 +247,7 @@
 <!-- SEARCH -->
 <div class="search-box">
     <h2>🚗 Find Evacuation Route</h2>
-    <form method="POST">
+    <form method="POST" id="searchForm">
         <div class="form-row">
 
             <!-- STARTING LOCATION -->
@@ -306,6 +309,19 @@
     ✅ {{ message }}
 </div>
 {% endif %}
+
+<!-- LIVE CHANGE ALERT (hidden until road/shelter data changes) -->
+<div id="changeBanner"
+     style="display:none;background:#78350f;color:#fde68a;padding:15px;
+            border-radius:8px;margin-bottom:20px;">
+    ⚠️ <b>Road or shelter conditions just changed.</b>
+    The route shown below may no longer be safe.
+    <button type="button" class="search-btn"
+            style="margin-left:10px;margin-top:8px;padding:8px 16px;"
+            onclick="document.getElementById('searchForm').submit();">
+        🔄 Update route now
+    </button>
+</div>
 
 <!-- ROUTE RESULT -->
 {% if route %}
@@ -786,9 +802,56 @@ document.getElementById("networkToggle").addEventListener(
 );
 
 /* =========================================================
+   LIVE UPDATES
+   Every 15 seconds the page asks /api/status for a fingerprint
+   of all roads and shelters. If it changed:
+     - a route is on screen  -> show a warning with an
+                                "Update route now" button
+     - nothing on screen yet -> reload the page quietly
+========================================================= */
+var POLL_MS = 15000;
+var lastVersion = null;
+var showingResult = {{ 'true' if request.method == 'POST' else 'false' }};
+
+function onConditionsChanged() {
+    if (showingResult) {
+        document.getElementById("changeBanner").style.display = "block";
+        document.getElementById("changeBanner").scrollIntoView(
+            { behavior: "smooth", block: "center" });
+    } else {
+        window.location.reload();
+    }
+}
+
+async function checkForChanges() {
+    if (document.hidden) { return; }          /* tab not visible */
+    var bar = document.getElementById("liveBar");
+    try {
+        var res = await fetch("/api/status", { cache: "no-store" });
+        var data = await res.json();
+        if (!data.ok) { throw new Error(data.error || "bad response"); }
+
+        bar.innerText = "🟢 Live updates ON · last checked " +
+                        new Date().toLocaleTimeString();
+        if (lastVersion === null) {
+            lastVersion = data.version;       /* first check = baseline */
+        } else if (data.version !== lastVersion) {
+            lastVersion = data.version;
+            onConditionsChanged();
+        }
+    } catch (err) {
+        bar.innerText = "🔴 Connection lost · retrying...";
+    }
+}
+setInterval(checkForChanges, POLL_MS);
+checkForChanges();
+
+/* =========================================================
    FIX MAP SIZE
 ========================================================= */
 setTimeout(function() { map.invalidateSize(); }, 1000);
 </script>
 </body>
 </html>
+
+    
