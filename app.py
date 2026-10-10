@@ -108,6 +108,16 @@ def initialize_database():
             VALUES (%s, %s, %s)
             ON CONFLICT (name) DO NOTHING
         """, (name, people, people))
+    # Vulnerable people (elderly, disabled, patients) in each zone.
+    # ALTER ... IF NOT EXISTS upgrades an existing database safely.
+    cur.execute("""
+        ALTER TABLE zones
+        ADD COLUMN IF NOT EXISTS vulnerable INTEGER NOT NULL DEFAULT 0
+    """)
+    cur.execute("""
+        ALTER TABLE zones
+        ADD COLUMN IF NOT EXISTS base_vulnerable INTEGER NOT NULL DEFAULT 0
+    """)
 
     # History log: one row for every change an admin makes to a road
     cur.execute("""
@@ -173,7 +183,8 @@ def get_zone_rows():
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT name, population, base_population
+        SELECT name, population, base_population, vulnerable,
+               base_vulnerable
         FROM zones ORDER BY name
     """)
     rows = cur.fetchall()
@@ -195,14 +206,15 @@ def load_network():
     rows = cur.fetchall()
     cur.execute("SELECT name, capacity, occupied FROM shelters")
     shelter_rows = cur.fetchall()
-    cur.execute("SELECT name, population FROM zones")
+    cur.execute("SELECT name, population, vulnerable FROM zones")
     zone_rows = cur.fetchall()
     cur.close()
     conn.close()
     network = RoadNetwork.from_rows(rows, SHELTERS)
     for name, cap, occ in shelter_rows:
         network.shelters[name] = Shelter(name, cap, occ)
-    network.set_populations(dict(zone_rows))
+    network.set_populations({n: p for n, p, v in zone_rows})
+    network.set_vulnerable({n: v for n, p, v in zone_rows})
     return network
 
 
@@ -220,7 +232,10 @@ def restore_populations():
     """Put every zone back to its full population (emergency reset)."""
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE zones SET population = base_population")
+    cur.execute("""
+        UPDATE zones
+        SET population = base_population, vulnerable = base_vulnerable
+    """)
     conn.commit()
     cur.close()
     conn.close()
@@ -238,8 +253,9 @@ def save_evacuation(network, plan):
                 (shelter.occupied, shelter.name))
         for item in plan:
             cur.execute(
-                "UPDATE zones SET population = %s WHERE name = %s",
-                (item["unplaced"], item["zone"]))
+                "UPDATE zones SET population = %s, vulnerable = %s "
+                "WHERE name = %s",
+                (item["unplaced"], item["vulnerable_left"], item["zone"]))
         conn.commit()
         cur.close()
     except Exception:
@@ -381,14 +397,23 @@ def update_population():
             raise ValueError("Enter a whole number of people")
         if people < 0:
             raise ValueError("People cannot be negative")
+        try:
+            vulnerable = int(request.form.get("vulnerable") or 0)
+        except ValueError:
+            raise ValueError("Vulnerable must be a whole number")
+        if vulnerable < 0 or vulnerable > people:
+            raise ValueError(
+                "Vulnerable people must be between 0 and the population")
         ensure_db()
         conn = get_connection()
         try:
             cur = conn.cursor()
             cur.execute("""
-                UPDATE zones SET population = %s, base_population = %s
+                UPDATE zones
+                SET population = %s, base_population = %s,
+                    vulnerable = %s, base_vulnerable = %s
                 WHERE name = %s
-            """, (people, people, name))
+            """, (people, people, vulnerable, vulnerable, name))
             if cur.rowcount == 0:
                 raise ValueError("Unknown zone: " + str(name))
             conn.commit()
@@ -396,7 +421,8 @@ def update_population():
         finally:
             conn.close()
         return redirect(url_for(
-            "admin", msg=f"{name}: {people} people to evacuate"))
+            "admin", msg=f"{name}: {people} people to evacuate "
+                         f"({vulnerable} vulnerable)"))
     except Exception as e:
         return redirect(url_for("admin", err=str(e)))
 
@@ -547,6 +573,7 @@ def home():
     route_risk = risk_label = None
     alt_route = alt_distance = alt_risk = alt_risk_label = None
     route_edge_list = alt_edge_list = None
+    compare = None
     message = request.args.get("done")
     if request.args.get("fail"):
         error = request.args.get("fail")
@@ -608,6 +635,20 @@ def home():
                         alt_route, alt_distance, alt_risk = alt
                         alt_risk_label = network.risk_label(alt_risk)
                         alt_edge_list = route_edges(alt_route, graph)
+                    short = network.find_shortest_route(
+                        source, resolved_destination, graph)
+                    if short:
+                        short_route, short_km, short_risk = short
+                        compare = {
+                            "same": short_route == route,
+                            "safest": {"route": route, "km": distance,
+                                       "risk": route_risk,
+                                       "label": risk_label},
+                            "shortest": {
+                                "route": short_route, "km": short_km,
+                                "risk": short_risk,
+                                "label": network.risk_label(short_risk)},
+                        }
             except Exception as e:
                 error = "Route calculation error: " + str(e)
 
@@ -642,11 +683,13 @@ def home():
         alt_risk_label=alt_risk_label,
         route_edges=route_edge_list,
         alt_edges=alt_edge_list,
+        compare=compare,
     )
 
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
 
