@@ -1,5 +1,4 @@
-
-       """
+"""
 test_models.py - automated tests for models.py
 
 Run from the project folder with:
@@ -417,6 +416,44 @@ class TestAllocation:
         assert by_zone["Mid"]["unplaced"] == 0
         assert by_zone["Home"]["unplaced"] == 50
 
+    def test_vulnerable_zone_goes_first_at_same_risk(self):
+        rows = [("A", "S", 1.0, "low", "open"),
+                ("B", "S", 1.0, "low", "open")]
+        net = RoadNetwork.from_rows(rows, ("S",))
+        net.shelters["S"].capacity = 50
+        net.set_populations({"A": 50, "B": 50})
+        net.set_vulnerable({"B": 20})
+        plan = net.allocate_evacuation("low")
+        by_zone = {p["zone"]: p for p in plan}
+        assert plan[0]["zone"] == "B"
+        assert by_zone["B"]["vulnerable"] == 20
+        assert by_zone["B"]["unplaced"] == 0
+        assert by_zone["A"]["unplaced"] == 50
+
+    def test_danger_still_beats_vulnerable_count(self):
+        net = with_population(Home=50, Mid=50)
+        net.set_vulnerable({"Home": 50})
+        plan = net.allocate_evacuation("low")
+        assert plan[0]["zone"] == "Mid"          # high risk first
+
+    def test_vulnerable_are_placed_first_inside_zone(self):
+        rows = [("A", "S", 1.0, "low", "open")]
+        net = RoadNetwork.from_rows(rows, ("S",))
+        net.shelters["S"].capacity = 30
+        net.set_populations({"A": 100})
+        net.set_vulnerable({"A": 20})
+        item = net.allocate_evacuation("low")[0]
+        assert item["placed"] == 30
+        assert item["vulnerable_left"] == 0      # all 20 got a place
+        net.shelters["S"].capacity = 10
+        net.shelters["S"].occupied = 0
+        item = net.allocate_evacuation("low")[0]
+        assert item["vulnerable_left"] == 10     # only 10 of 20 placed
+
+    def test_negative_vulnerable_is_rejected(self):
+        with pytest.raises(ValueError):
+            HazardZone("Z").set_vulnerable(-1)
+
     def test_zones_without_people_are_left_out(self):
         plan = with_population(Mid=30).allocate_evacuation("low")
         assert [p["zone"] for p in plan] == ["Mid"]
@@ -441,5 +478,9 @@ class TestAllocation:
     def test_bad_risk_level_is_rejected(self):
         with pytest.raises(ValueError):
             make_network().allocate_evacuation("extreme")
-     
+
+
+
+                    
+    
     
