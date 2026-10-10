@@ -37,6 +37,9 @@ SAMPLE_ROADS = [
 
 LOCATIONS = list(COORDS.keys())
 
+# The backup route may be at most this many times longer than the best one
+ALT_MAX_RATIO = 2.0
+
 _db_ready = False   # database is created only once, not on every page load
 
 
@@ -558,7 +561,8 @@ def home():
                     risk_label = network.risk_label(route_risk)
                     route_edge_list = route_edges(route, graph)
                     alt = network.find_alternative_route(
-                        source, resolved_destination, graph)
+                        source, resolved_destination, graph,
+                        max_ratio=ALT_MAX_RATIO)
                     if alt:
                         alt_route, alt_distance, alt_risk = alt
                         alt_risk_label = network.risk_label(alt_risk)
@@ -606,3 +610,6 @@ if __name__ == "__main__":
 
         
     
+
+
+                
