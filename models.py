@@ -16,6 +16,7 @@ class Road:
 
     # "submerged" = road is under water, so it can never be used.
     FLOOD_PENALTY = {"low": 0, "medium": 10, "high": 50, "submerged": 1000}
+    VALID_STATUS = ("open", "blocked")
 
     def __init__(self, name, start, end, distance_km,
                  flood_level="low", status="open"):
@@ -23,8 +24,14 @@ class Road:
         self.start = start
         self.end = end
         self.distance_km = float(distance_km)
-        self.flood_level = str(flood_level).strip().lower()
-        self.status = str(status).strip().lower()
+        if self.distance_km <= 0:
+            raise ValueError(f"{name}: distance must be more than 0")
+        # Validate here so a typo in the database can never be
+        # silently treated as "no risk".
+        self.flood_level = "low"
+        self.status = "open"
+        self.set_flood_level(flood_level)
+        self.set_status(status)
 
     # ---- dynamic state -------------------------------------------------
     def block(self):
@@ -32,6 +39,12 @@ class Road:
 
     def open(self):
         self.status = "open"
+
+    def set_status(self, status):
+        status = str(status).strip().lower()
+        if status not in self.VALID_STATUS:
+            raise ValueError("road status must be open or blocked")
+        self.status = status
 
     def set_flood_level(self, level):
         level = str(level).strip().lower()
@@ -49,7 +62,7 @@ class Road:
         return self.status != "blocked" and not self.is_submerged()
 
     def risk_penalty(self):
-        return self.FLOOD_PENALTY.get(self.flood_level, 0)
+        return self.FLOOD_PENALTY[self.flood_level]
 
     def cost(self):
         """Cost used by the shortest-path algorithm (distance + risk)."""
@@ -112,8 +125,7 @@ class HazardZone:
         if not self.roads:
             return "low"
         return max((r.flood_level for r in self.roads),
-                   key=lambda lvl: self.ORDER.index(lvl)
-                   if lvl in self.ORDER else 0)
+                   key=self.ORDER.index)
 
     def __repr__(self):
         return f"HazardZone({self.name}, risk={self.risk_level()})"
@@ -126,19 +138,27 @@ class RoadNetwork:
         self.roads = []
         self.shelters = {n: Shelter(n) for n in shelter_names}
         self.zones = {}
+        self.skipped = []     # database rows that were invalid
 
     # ---- building the network ------------------------------------------
     @classmethod
     def from_rows(cls, rows, shelter_names=("Evacuation Center",)):
-        """rows = (start, end, distance_km, flood_level, road_status)"""
+        """rows = (start, end, distance_km, flood_level, road_status)
+        A row with bad data is skipped (and listed in network.skipped)
+        instead of crashing the whole app."""
         network = cls(shelter_names)
         for start, end, dist, flood, status in rows:
-            network.add_road(Road(f"{start} - {end}", start, end,
-                                  dist, flood, status))
+            try:
+                network.add_road(Road(f"{start} - {end}", start, end,
+                                      dist, flood, status))
+            except ValueError as e:
+                network.skipped.append(f"{start} - {end}: {e}")
         return network
 
     def add_road(self, road):
         self.roads.append(road)
+        # Shelters are destinations, not hazard zones, so only the
+        # non-shelter end(s) of a road are tracked as zones.
         for place in (road.start, road.end):
             if place in self.shelters:
                 continue
@@ -151,8 +171,13 @@ class RoadNetwork:
         for road in self.roads:
             if not road.is_passable():
                 continue                      # blocked / submerged road
+            weight = road.cost()
+            # If two roads join the same places, keep the cheaper one.
+            if graph.has_edge(road.start, road.end) and \
+                    graph[road.start][road.end]["weight"] <= weight:
+                continue
             graph.add_edge(road.start, road.end,
-                           weight=road.cost(),
+                           weight=weight,
                            distance=road.distance_km,
                            risk=road.risk_penalty())
         return graph
@@ -235,6 +260,8 @@ class RoadNetwork:
         to its best shelter. Returns a list of dicts, most dangerous
         zones first. A zone with no safe route has shelter=None."""
         order = HazardZone.ORDER
+        if min_risk not in order:
+            raise ValueError("min_risk must be one of " + ", ".join(order))
         threshold = order.index(min_risk)
         graph = self.build_graph()            # built once for all zones
         plan = []
@@ -253,3 +280,5 @@ class RoadNetwork:
             })
         plan.sort(key=lambda p: (-order.index(p["risk"]), p["zone"]))
         return plan
+
+
