@@ -114,8 +114,10 @@
     <div class="road-box" style="margin-top:25px;">
         <h2 style="color:#38bdf8;margin-top:0;">👥 Zone Populations</h2>
         <p style="color:#94a3b8;margin-top:0;">
-            How many people live in each zone. "Still to evacuate" goes
-            down when you confirm an evacuation.
+            How many people live in each zone, and how many of them are
+            vulnerable (elderly, disabled, patients). Vulnerable people
+            are evacuated first. "Still to evacuate" goes down when you
+            confirm an evacuation.
         </p>
         <table>
             <thead>
@@ -123,7 +125,8 @@
                     <th>Zone</th>
                     <th>Still to evacuate</th>
                     <th>Full population</th>
-                    <th>Set new population</th>
+                    <th>Vulnerable (waiting)</th>
+                    <th>Set population and vulnerable</th>
                 </tr>
             </thead>
             <tbody>
@@ -136,10 +139,19 @@
                         </td>
                         <td>{{ z[1] }}</td>
                         <td>{{ z[2] }}</td>
+                        <td>{{ [z[3], z[1]]|min }}</td>
                         <td>
                             <input type="number" name="people" min="0"
                                    value="{{ z[2] }}" required
-                                   style="width:100px;padding:8px;
+                                   title="Population"
+                                   style="width:90px;padding:8px;
+                                          border-radius:6px;
+                                          border:1px solid #475569;
+                                          background:#0f172a;color:white;">
+                            <input type="number" name="vulnerable" min="0"
+                                   value="{{ z[4] }}" required
+                                   title="Vulnerable (elderly, disabled, patients)"
+                                   style="width:90px;padding:8px;
                                           border-radius:6px;
                                           border:1px solid #475569;
                                           background:#0f172a;color:white;">
@@ -148,7 +160,7 @@
                     </form>
                 </tr>
             {% else %}
-                <tr><td colspan="4">No zones found.</td></tr>
+                <tr><td colspan="5">No zones found.</td></tr>
             {% endfor %}
             </tbody>
         </table>
