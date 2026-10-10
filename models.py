@@ -114,9 +114,17 @@ class HazardZone:
 
     ORDER = ["low", "medium", "high", "submerged"]
 
-    def __init__(self, name):
+    def __init__(self, name, population=0):
         self.name = name
         self.roads = []
+        self.population = 0           # people still waiting to be evacuated
+        self.set_population(population)
+
+    def set_population(self, people):
+        people = int(people)
+        if people < 0:
+            raise ValueError("population cannot be negative")
+        self.population = people
 
     def add_road(self, road):
         self.roads.append(road)
@@ -280,5 +288,74 @@ class RoadNetwork:
             })
         plan.sort(key=lambda p: (-order.index(p["risk"]), p["zone"]))
         return plan
+
+    # ---- populations and shelter splitting ------------------------------
+    def set_populations(self, mapping):
+        """mapping = {zone_name: people}. Unknown zone names are ignored."""
+        for name, people in mapping.items():
+            if name in self.zones:
+                self.zones[name].set_population(people)
+
+    def allocate_evacuation(self, min_risk="high"):
+        """Plan where EVERY person in the dangerous zones goes.
+
+        Zones at or above `min_risk` are served most dangerous first.
+        A zone's people go to the nearest shelter with room; if that
+        shelter fills up, the rest go to the next nearest, and so on
+        (the group is SPLIT). People who cannot be placed (no safe road
+        or no space left) are reported as `unplaced`.
+
+        Places are reserved on the Shelter objects in memory ONLY.
+        Nothing is saved: the caller decides whether to keep it.
+
+        Returns a list of dicts:
+          zone, risk, population, placed, unplaced,
+          assignments = [{shelter, people, route, distance}, ...]
+        Zones with nobody left to evacuate are left out."""
+        order = HazardZone.ORDER
+        if min_risk not in order:
+            raise ValueError("min_risk must be one of " + ", ".join(order))
+        threshold = order.index(min_risk)
+        graph = self.build_graph()            # built once for all zones
+
+        chosen = [z for z in self.zones.values()
+                  if order.index(z.risk_level()) >= threshold
+                  and z.population > 0]
+        chosen.sort(key=lambda z: (-order.index(z.risk_level()), z.name))
+
+        plan = []
+        for zone in chosen:
+            remaining = zone.population
+            assignments = []
+            while remaining > 0:
+                shelter, route, km = self.find_nearest_shelter(
+                    zone.name, 1, graph)      # nearest shelter with room
+                if shelter is None:
+                    break                     # no road or no space left
+                take = min(remaining, shelter.available())
+                shelter.assign(take)
+                assignments.append({
+                    "shelter": shelter.name,
+                    "people": take,
+                    "route": route,
+                    "distance": km,
+                })
+                remaining -= take
+            plan.append({
+                "zone": zone.name,
+                "risk": zone.risk_level(),
+                "population": zone.population,
+                "placed": zone.population - remaining,
+                "unplaced": remaining,
+                "assignments": assignments,
+            })
+        return plan
+
+    @staticmethod
+    def plan_totals(plan):
+        """Total people, placed and unplaced across a plan."""
+        total = sum(p["population"] for p in plan)
+        placed = sum(p["placed"] for p in plan)
+        return {"total": total, "placed": placed, "unplaced": total - placed}
 
 
