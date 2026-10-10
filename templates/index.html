@@ -413,6 +413,7 @@
         <div class="legend-item">🟢 Recommended Flood-Safe Route</div>
         <div class="legend-item">🟠 Alternative Route</div>
         <div class="legend-item">🏠 Shelter</div>
+        <div class="legend-item">⚫ Dotted line = exact algorithm path</div>
     </div>
 
     <div class="legend">
@@ -589,9 +590,12 @@ async function getRealRoadGeometry(start, end) {
         if (data.code !== "Ok" || !data.routes || data.routes.length === 0) {
             return null;
         }
-        return data.routes[0].geometry.coordinates.map(function(point) {
-            return [point[1], point[0]];
-        });
+        return {
+            km: data.routes[0].distance / 1000,
+            coords: data.routes[0].geometry.coordinates.map(function(point) {
+                return [point[1], point[0]];
+            })
+        };
     } catch (error) {
         console.error("Road routing error:", error);
         return null;
@@ -622,11 +626,14 @@ Object.keys(locations).forEach(function(name) {
    REAL-ROAD SHAPES (cached, straight-line fallback)
 ========================================================= */
 var geomCache = {};
+var kmCache = {};
 
 async function getSegment(a, b) {
     var key = a + "|" + b;
     if (!(key in geomCache)) {
-        geomCache[key] = await getRealRoadGeometry(a, b);
+        var res = await getRealRoadGeometry(a, b);
+        geomCache[key] = res ? res.coords : null;
+        kmCache[key] = res ? res.km : null;
     }
     var g = geomCache[key];
     if (g && g.length > 1) { return g.slice(); }
@@ -643,6 +650,30 @@ async function buildPath(names) {
         coords = coords.concat(seg);
     }
     return { coords: coords, fallback: fallback };
+}
+
+/* ---------- ROUTING MISMATCH CHECK ----------
+   The algorithm (models.py) picks the stops using flood penalties and
+   blocked roads. OSRM only draws the shape between two stops and knows
+   nothing about floods. If OSRM's distance for a leg is very different
+   from the graph's distance_km, the drawing is not the same road. */
+var ROUTE_EDGES = {{ route_edges|tojson }};
+var ALT_EDGES = {{ alt_edges|tojson }};
+var MISMATCH_RATIO = 1.5;
+
+function findMismatches(edges) {
+    var bad = [];
+    (edges || []).forEach(function(e) {
+        var km = kmCache[e.from + "|" + e.to];
+        if (km === null || km === undefined) { return; }
+        var ratio = km / e.distance;
+        if (ratio > MISMATCH_RATIO || ratio < 1 / MISMATCH_RATIO) {
+            bad.push(e.from + " → " + e.to + ": graph " +
+                     e.distance.toFixed(1) + " km, map road " +
+                     km.toFixed(1) + " km");
+        }
+    });
+    return bad;
 }
 
 var FLOOD_COLORS = {
@@ -690,6 +721,10 @@ async function drawRoutes() {
         "🟢 Recommended Flood-Safe Route<br>" +
         "Flood risk score: {{ route_risk }}"
     );
+    /* exact path chosen by the algorithm: stop to stop */
+    L.polyline(selectedRoute.map(function(n) { return locations[n]; }), {
+        color: "#111827", weight: 2, dashArray: "2, 6", opacity: 1
+    }).addTo(map).bindPopup("Algorithm path (stop to stop)");
     map.fitBounds(routeLine.getBounds(), { padding: [70, 70] });
 {% endif %}
 
@@ -713,7 +748,17 @@ async function drawRoutes() {
 
 {% if route %}
     routeLine.bringToFront();
-    status.innerText = fallback ? ROUTE_FALLBACK : ROUTE_OK;
+    var mism = findMismatches(ROUTE_EDGES).concat(findMismatches(ALT_EDGES));
+    var msg = fallback ? ROUTE_FALLBACK : ROUTE_OK;
+    if (mism.length) {
+        msg += "\n\n⚠️ The drawn road differs a lot from the algorithm's " +
+               "distance on:\n• " + mism.join("\n• ") +
+               "\nFollow the dotted black line (the algorithm's stops). " +
+               "The road shape is only a drawing and may use a road " +
+               "marked flooded or blocked.";
+    }
+    status.style.whiteSpace = "pre-line";
+    status.innerText = msg;
 {% else %}
     if (allPoints.length) {
         map.fitBounds(L.latLngBounds(allPoints), { padding: [40, 40] });
@@ -855,3 +900,4 @@ setTimeout(function() { map.invalidateSize(); }, 1000);
 </html>
 
     
+
