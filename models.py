@@ -228,20 +228,29 @@ class RoadNetwork:
                     for a, b in zip(route, route[1:]))
         return route, total
 
-    def find_alternative_route(self, source, destination, graph=None):
-        """Second-best route (different from the best one).
-        Returns (route, km, risk) or None if there is no other route."""
+    def find_alternative_route(self, source, destination, graph=None,
+                               max_ratio=3.0, max_candidates=10):
+        """Next-best route that is different from the best one AND not
+        a huge detour: its length may be at most `max_ratio` times the
+        best route's length. Looks at up to `max_candidates` routes.
+        Returns (route, km, risk) or None if there is no sensible one."""
         if graph is None:
             graph = self.build_graph()
         try:
             paths = nx.shortest_simple_paths(graph, source, destination,
                                              weight="weight")
-            next(paths)                       # skip the best route
-            alt = next(paths)                 # the next-best one
+            best = next(paths)                # skip the best route
+            best_km = sum(graph[a][b]["distance"]
+                          for a, b in zip(best, best[1:]))
+            for _ in range(max_candidates):
+                alt = next(paths)
+                km = sum(graph[a][b]["distance"]
+                         for a, b in zip(alt, alt[1:]))
+                if km <= best_km * max_ratio:
+                    return alt, km, self.route_risk(alt, graph)
         except (nx.NetworkXNoPath, nx.NodeNotFound, StopIteration):
-            return None
-        km = sum(graph[a][b]["distance"] for a, b in zip(alt, alt[1:]))
-        return alt, km, self.route_risk(alt, graph)
+            pass
+        return None
 
     def find_nearest_shelter(self, source, people=1, graph=None):
         """Best reachable shelter with enough free places for `people`:
