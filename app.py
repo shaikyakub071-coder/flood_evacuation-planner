@@ -1,10 +1,15 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import (Flask, render_template, request, redirect, url_for,
+                   session)
+from functools import wraps
 import psycopg2
 import os
 
 from models import Road, RoadNetwork, Shelter
 
 app = Flask(__name__)
+
+# Needed for login sessions. Set SECRET_KEY on Render (any long random text).
+app.secret_key = os.environ.get("SECRET_KEY", "dev-only-change-me")
 
 # Simulated coordinates (latitude, longitude) around Nandyal
 COORDS = {
@@ -200,9 +205,48 @@ def update_road_state(road_name, flood_level, status):
 
 
 # ---------------------------------------------------------
+# LOGIN (protects the admin pages)
+# ---------------------------------------------------------
+def admin_required(f):
+    """Redirect to the login page unless the admin is logged in."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not session.get("is_admin"):
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+    return wrapper
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        real = os.environ.get("ADMIN_PASSWORD")
+        if not real:
+            error = "ADMIN_PASSWORD is not configured on the server."
+        elif request.form.get("password") == real:
+            session["is_admin"] = True
+            # only allow redirects to pages on this site
+            nxt = request.args.get("next") or ""
+            if not nxt.startswith("/") or nxt.startswith("//"):
+                nxt = url_for("admin")
+            return redirect(nxt)
+        else:
+            error = "Wrong password"
+    return render_template("login.html", error=error)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("home"))
+
+
+# ---------------------------------------------------------
 # ADMIN PAGE (authorities update flood / road conditions)
 # ---------------------------------------------------------
 @app.route("/admin")
+@admin_required
 def admin():
     message = request.args.get("msg")
     error = request.args.get("err")
@@ -218,6 +262,7 @@ def admin():
 
 
 @app.route("/reset_shelters", methods=["POST"])
+@admin_required
 def reset_shelters():
     """Empty all shelters (e.g. when an emergency is over)."""
     try:
@@ -249,6 +294,7 @@ def confirm_evacuation():
 
 
 @app.route("/update_road", methods=["POST"])
+@admin_required
 def update_road():
     road_name = request.form.get("road_name")
     flood_level = request.form.get("flood_level")
