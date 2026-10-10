@@ -155,6 +155,36 @@
     </div>
 
     <div class="road-box" style="margin-top:25px;">
+        <h2 style="color:#38bdf8;margin-top:0;">🕒 Flood History (latest changes)</h2>
+        <p style="color:#94a3b8;margin-top:0;">
+            Every change to a road is logged with its time, so you can
+            review how the flood spread.
+        </p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Road</th>
+                    <th>Flood</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for h in history %}
+                <tr>
+                    <td>{{ h[0] }}</td>
+                    <td>{{ h[1] }}</td>
+                    <td>{{ h[2]|upper }} → <b>{{ h[3]|upper }}</b></td>
+                    <td>{{ h[4]|upper }} → <b>{{ h[5]|upper }}</b></td>
+                </tr>
+            {% else %}
+                <tr><td colspan="4">No changes yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="road-box" style="margin-top:25px;">
         <h2 style="color:#38bdf8;margin-top:0;">🏠 Shelter Occupancy</h2>
         <table>
             <thead>
@@ -188,4 +218,3 @@
 </div>
 </body>
 </html>
- 
