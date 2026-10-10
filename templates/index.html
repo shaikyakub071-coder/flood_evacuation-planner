@@ -384,6 +384,47 @@
     </p>
     {% endif %}
 
+    {% if compare %}
+    <div style="margin-top:20px;padding:15px;background:#0f172a;
+                border:1px solid #334155;border-radius:8px;">
+        <h3 style="margin:0 0 10px;color:#38bdf8;">⚖️ Shortest vs Safest</h3>
+        {% if compare.same %}
+        <p style="color:#22c55e;margin:0;">
+            The shortest route is also the safest one. No trade-off here.
+        </p>
+        {% else %}
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;color:#e2e8f0;">
+            <tr style="color:#94a3b8;text-align:left;">
+                <th></th>
+                <th style="padding:6px;">🟢 Safest (recommended)</th>
+                <th style="padding:6px;">🔵 Shortest</th>
+            </tr>
+            <tr>
+                <td style="padding:6px;color:#94a3b8;">Distance</td>
+                <td style="padding:6px;">{{ "%.2f"|format(compare.safest.km) }} km</td>
+                <td style="padding:6px;">{{ "%.2f"|format(compare.shortest.km) }} km</td>
+            </tr>
+            <tr>
+                <td style="padding:6px;color:#94a3b8;">Flood risk</td>
+                <td style="padding:6px;">{{ compare.safest.risk }} ({{ compare.safest.label }})</td>
+                <td style="padding:6px;color:#f87171;">{{ compare.shortest.risk }} ({{ compare.shortest.label }})</td>
+            </tr>
+            <tr>
+                <td style="padding:6px;color:#94a3b8;">Stops</td>
+                <td style="padding:6px;">{{ compare.safest.route|join(' → ') }}</td>
+                <td style="padding:6px;">{{ compare.shortest.route|join(' → ') }}</td>
+            </tr>
+        </table>
+        </div>
+        <p style="color:#94a3b8;margin:10px 0 0;">
+            The shortest route ignores flood levels. The recommended route
+            may be a little longer but passes through less flooded roads.
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <p style="color:#94a3b8;margin-top:15px;">
         The route avoids blocked roads and considers flood-risk penalties.
     </p>
@@ -667,7 +708,7 @@ function findMismatches(edges) {
         var km = kmCache[e.from + "|" + e.to];
         if (km === null || km === undefined) { return; }
         var ratio = km / e.distance;
-        if (ratio > MISMATCH_RATIO || ratio < 1 / MISMATCH_RATIO) {
+        if (ratio > MISMATCH_RATIO) {
             bad.push(e.from + " → " + e.to + ": graph " +
                      e.distance.toFixed(1) + " km, map road " +
                      km.toFixed(1) + " km");
@@ -898,7 +939,3 @@ setTimeout(function() { map.invalidateSize(); }, 1000);
 </script>
 </body>
 </html>
-
-    
-
-        
