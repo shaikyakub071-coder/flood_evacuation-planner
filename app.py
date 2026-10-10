@@ -35,6 +35,18 @@ SHELTER_INFO = {
 }
 SHELTERS = tuple(SHELTER_INFO.keys())
 
+# Starting population of each flood-prone zone (people to evacuate).
+# Admins can change these on the /admin page.
+ZONE_POPULATION = {
+    "Nandyal Bus Stand": 300,
+    "Government Hospital": 450,
+    "Railway Station": 250,
+    "Kundu River Bank": 800,
+    "Market Yard": 400,
+    "Gandhi Chowk": 350,
+    "Srinivasa Nagar": 600,
+}
+
 LOCATIONS = list(COORDS.keys())
 
 _db_ready = False   # database is created only once, not on every page load
@@ -124,13 +136,39 @@ def initialize_database():
             VALUES (%s, %s, 0)
             ON CONFLICT (name) DO NOTHING
         """, (name, cap))
+
+    # Zones table: people still waiting to be evacuated.
+    # population      = people not yet placed in a shelter
+    # base_population = the full number, used when an emergency is reset
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS zones (
+            name VARCHAR(100) PRIMARY KEY,
+            population INTEGER NOT NULL DEFAULT 0,
+            base_population INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    for name, people in ZONE_POPULATION.items():
+        cur.execute("""
+            INSERT INTO zones (name, population, base_population)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (name) DO NOTHING
+        """, (name, people, people))
     conn.commit()
     cur.close()
     conn.close()
 
 
+def ensure_db():
+    """Create the tables once. Safe to call from anywhere."""
+    global _db_ready
+    if not _db_ready:
+        initialize_database()
+        _db_ready = True
+
+
 def get_road_status():
     """Rows for the road table in index.html."""
+    ensure_db()
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -144,8 +182,24 @@ def get_road_status():
     return rows
 
 
+def get_zone_rows():
+    """Rows (name, population, base_population) for the admin page."""
+    ensure_db()
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT name, population, base_population
+        FROM zones ORDER BY name
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+
 def load_network():
-    """Read the roads table and build the OOP RoadNetwork."""
+    """Read the database and build the OOP RoadNetwork."""
+    ensure_db()
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("""
@@ -156,11 +210,14 @@ def load_network():
     rows = cur.fetchall()
     cur.execute("SELECT name, capacity, occupied FROM shelters")
     shelter_rows = cur.fetchall()
+    cur.execute("SELECT name, population FROM zones")
+    zone_rows = cur.fetchall()
     cur.close()
     conn.close()
     network = RoadNetwork.from_rows(rows, SHELTERS)
     for name, cap, occ in shelter_rows:
         network.shelters[name] = Shelter(name, cap, occ)
+    network.set_populations(dict(zone_rows))
     return network
 
 
@@ -172,6 +229,39 @@ def save_shelter_occupancy(shelter):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def restore_populations():
+    """Put every zone back to its full population (emergency reset)."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("UPDATE zones SET population = base_population")
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def save_evacuation(network, plan):
+    """Save shelter occupancy AND the people still waiting in each
+    zone in ONE transaction, so it is all saved or nothing is."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        for shelter in network.shelters.values():
+            cur.execute(
+                "UPDATE shelters SET occupied = %s WHERE name = %s",
+                (shelter.occupied, shelter.name))
+        for item in plan:
+            cur.execute(
+                "UPDATE zones SET population = %s WHERE name = %s",
+                (item["unplaced"], item["zone"]))
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def update_road_state(road_name, flood_level, status):
@@ -253,26 +343,64 @@ def admin():
     message = request.args.get("msg")
     error = request.args.get("err")
     shelters = []
+    zones = []
     try:
         roads = get_road_status()
         shelters = list(load_network().shelters.values())
+        zones = get_zone_rows()
     except Exception as e:
         roads = []
         error = "Database error: " + str(e)
     return render_template("admin.html", roads=roads, shelters=shelters,
-                           message=message, error=error)
+                           zones=zones, message=message, error=error)
 
 
 @app.route("/reset_shelters", methods=["POST"])
 @admin_required
 def reset_shelters():
-    """Empty all shelters (e.g. when an emergency is over)."""
+    """Emergency over: empty all shelters and put every zone back to
+    its full population."""
     try:
         network = load_network()
         for shelter in network.shelters.values():
             shelter.reset()
             save_shelter_occupancy(shelter)
-        return redirect(url_for("admin", msg="All shelters reset to empty"))
+        restore_populations()
+        return redirect(url_for(
+            "admin",
+            msg="All shelters emptied and zone populations restored"))
+    except Exception as e:
+        return redirect(url_for("admin", err=str(e)))
+
+
+@app.route("/update_population", methods=["POST"])
+@admin_required
+def update_population():
+    """Set how many people live in a zone (people to evacuate)."""
+    name = request.form.get("zone")
+    try:
+        try:
+            people = int(request.form.get("people", ""))
+        except ValueError:
+            raise ValueError("Enter a whole number of people")
+        if people < 0:
+            raise ValueError("People cannot be negative")
+        ensure_db()
+        conn = get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE zones SET population = %s, base_population = %s
+                WHERE name = %s
+            """, (people, people, name))
+            if cur.rowcount == 0:
+                raise ValueError("Unknown zone: " + str(name))
+            conn.commit()
+            cur.close()
+        finally:
+            conn.close()
+        return redirect(url_for(
+            "admin", msg=f"{name}: {people} people to evacuate"))
     except Exception as e:
         return redirect(url_for("admin", err=str(e)))
 
@@ -309,24 +437,55 @@ def update_road():
 
 
 # ---------------------------------------------------------
-# EVACUATE ALL ZONES (authorities see every zone's best route)
+# EVACUATE ALL ZONES (authorities see where everyone goes)
 # ---------------------------------------------------------
+def _clean_risk(value):
+    return value if value in ("medium", "high", "submerged") else "high"
+
+
 @app.route("/evacuate-all")
 def evacuate_all():
-    min_risk = request.args.get("risk", "high")
-    if min_risk not in ("medium", "high", "submerged"):
-        min_risk = "high"
+    min_risk = _clean_risk(request.args.get("risk", "high"))
     plan = []
-    error = None
+    shelters = []
+    totals = RoadNetwork.plan_totals([])
+    error = request.args.get("err")
     try:
         network = load_network()
-        plan = network.evacuation_plan(min_risk)
+        plan = network.allocate_evacuation(min_risk)
+        totals = RoadNetwork.plan_totals(plan)
+        shelters = list(network.shelters.values())   # as if confirmed
     except Exception as e:
         error = "Could not build the evacuation plan: " + str(e)
-    stranded = [p for p in plan if p["shelter"] is None]
-    return render_template("evacuate_all.html", plan=plan,
-                           min_risk=min_risk, stranded=stranded,
-                           error=error)
+    stranded = [p for p in plan if p["unplaced"] > 0]
+    return render_template("evacuate_all.html", plan=plan, totals=totals,
+                           shelters=shelters, min_risk=min_risk,
+                           stranded=stranded, error=error,
+                           message=request.args.get("msg"),
+                           is_admin=bool(session.get("is_admin")))
+
+
+@app.route("/evacuate-all/confirm", methods=["POST"])
+@admin_required
+def confirm_evacuate_all():
+    """Reserve shelter places for the whole plan and mark those people
+    as evacuated. Only people who found a place are marked."""
+    min_risk = _clean_risk(request.form.get("risk", "high"))
+    try:
+        network = load_network()
+        plan = network.allocate_evacuation(min_risk)
+        totals = RoadNetwork.plan_totals(plan)
+        if totals["placed"] == 0:
+            raise ValueError("Nobody could be placed, so nothing "
+                             "was reserved.")
+        save_evacuation(network, plan)
+        msg = f"Reserved shelter places for {totals['placed']} people."
+        if totals["unplaced"]:
+            msg += (f" {totals['unplaced']} people still have no "
+                    "shelter space or safe route.")
+        return redirect(url_for("evacuate_all", risk=min_risk, msg=msg))
+    except Exception as e:
+        return redirect(url_for("evacuate_all", risk=min_risk, err=str(e)))
 
 
 # ---------------------------------------------------------
@@ -382,7 +541,6 @@ def route_edges(route, graph):
 # ---------------------------------------------------------
 @app.route("/", methods=["GET", "POST"])
 def home():
-    global _db_ready
     route = None
     distance = None
     error = None
@@ -397,12 +555,10 @@ def home():
     if request.args.get("fail"):
         error = request.args.get("fail")
 
-    if not _db_ready:
-        try:
-            initialize_database()
-            _db_ready = True
-        except Exception as e:
-            error = "Database error: " + str(e)
+    try:
+        ensure_db()
+    except Exception as e:
+        error = "Database error: " + str(e)
 
     try:
         road_statuses = get_road_status()
@@ -494,7 +650,3 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-
-
-                            
