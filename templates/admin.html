@@ -112,6 +112,49 @@
     </div>
 
     <div class="road-box" style="margin-top:25px;">
+        <h2 style="color:#38bdf8;margin-top:0;">👥 Zone Populations</h2>
+        <p style="color:#94a3b8;margin-top:0;">
+            How many people live in each zone. "Still to evacuate" goes
+            down when you confirm an evacuation.
+        </p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Zone</th>
+                    <th>Still to evacuate</th>
+                    <th>Full population</th>
+                    <th>Set new population</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for z in zones %}
+                <tr>
+                    <form method="POST" action="/update_population">
+                        <td>
+                            {{ z[0] }}
+                            <input type="hidden" name="zone" value="{{ z[0] }}">
+                        </td>
+                        <td>{{ z[1] }}</td>
+                        <td>{{ z[2] }}</td>
+                        <td>
+                            <input type="number" name="people" min="0"
+                                   value="{{ z[2] }}" required
+                                   style="width:100px;padding:8px;
+                                          border-radius:6px;
+                                          border:1px solid #475569;
+                                          background:#0f172a;color:white;">
+                            <button class="save-btn" type="submit">Save</button>
+                        </td>
+                    </form>
+                </tr>
+            {% else %}
+                <tr><td colspan="4">No zones found.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="road-box" style="margin-top:25px;">
         <h2 style="color:#38bdf8;margin-top:0;">🏠 Shelter Occupancy</h2>
         <table>
             <thead>
@@ -138,10 +181,11 @@
         <form method="POST" action="/reset_shelters">
             <button class="save-btn" type="submit"
                     style="margin-top:15px;background:#dc2626;">
-                Reset all shelters to empty
+                Reset: empty all shelters and restore zone populations
             </button>
         </form>
     </div>
 </div>
 </body>
 </html>
+ 
