@@ -1,4 +1,5 @@
-"""
+
+       """
 test_models.py - automated tests for models.py
 
 Run from the project folder with:
@@ -216,6 +217,26 @@ class TestAlternativeAndRisk:
         assert net.find_alternative_route(
             "Home", "Shelter A", max_ratio=2.0) is None
 
+    def test_shortest_route_ignores_flood_penalty(self):
+        rows = [
+            ("A", "B", 1.0, "high", "open"),     # short but flooded
+            ("B", "C", 1.0, "low", "open"),
+            ("A", "D", 3.0, "low", "open"),      # longer but dry
+            ("D", "C", 3.0, "low", "open"),
+        ]
+        net = RoadNetwork.from_rows(rows, ("C",))
+        safest, _ = net.find_route("A", "C")
+        shortest, km, risk = net.find_shortest_route("A", "C")
+        assert safest == ["A", "D", "C"]
+        assert shortest == ["A", "B", "C"]
+        assert km == 2.0
+        assert risk == 50
+
+    def test_shortest_route_none_when_no_path(self):
+        rows = [("A", "B", 1.0, "low", "open")]
+        net = RoadNetwork.from_rows(rows, ("B",))
+        assert net.find_shortest_route("A", "Z") is None
+
     def test_no_alternative_when_only_one_route(self):
         rows = [("A", "B", 1.0, "low", "open")]
         net = RoadNetwork.from_rows(rows, ("B",))
@@ -420,3 +441,5 @@ class TestAllocation:
     def test_bad_risk_level_is_rejected(self):
         with pytest.raises(ValueError):
             make_network().allocate_evacuation("extreme")
+     
+    
