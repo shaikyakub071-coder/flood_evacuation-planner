@@ -118,6 +118,7 @@ class HazardZone:
         self.name = name
         self.roads = []
         self.population = 0           # people still waiting to be evacuated
+        self.vulnerable = 0           # of them: elderly, disabled, patients
         self.set_population(population)
 
     def set_population(self, people):
@@ -125,6 +126,18 @@ class HazardZone:
         if people < 0:
             raise ValueError("population cannot be negative")
         self.population = people
+
+    def set_vulnerable(self, people):
+        """How many of the people here are vulnerable (elderly, disabled,
+        hospital patients). They are evacuated earlier."""
+        people = int(people)
+        if people < 0:
+            raise ValueError("vulnerable people cannot be negative")
+        self.vulnerable = people
+
+    def vulnerable_waiting(self):
+        """Vulnerable people still waiting (never more than the zone)."""
+        return min(self.vulnerable, self.population)
 
     def add_road(self, road):
         self.roads.append(road)
@@ -320,10 +333,19 @@ class RoadNetwork:
             if name in self.zones:
                 self.zones[name].set_population(people)
 
+    def set_vulnerable(self, mapping):
+        """mapping = {zone_name: vulnerable_people}. Unknown names ignored."""
+        for name, people in mapping.items():
+            if name in self.zones:
+                self.zones[name].set_vulnerable(people)
+
     def allocate_evacuation(self, min_risk="high"):
         """Plan where EVERY person in the dangerous zones goes.
 
         Zones at or above `min_risk` are served most dangerous first.
+        Inside the same danger level, zones with MORE vulnerable people
+        (elderly, disabled, patients) are served first. Vulnerable people
+        are also the first ones placed inside their zone.
         A zone's people go to the nearest shelter with room; if that
         shelter fills up, the rest go to the next nearest, and so on
         (the group is SPLIT). People who cannot be placed (no safe road
@@ -345,7 +367,8 @@ class RoadNetwork:
         chosen = [z for z in self.zones.values()
                   if order.index(z.risk_level()) >= threshold
                   and z.population > 0]
-        chosen.sort(key=lambda z: (-order.index(z.risk_level()), z.name))
+        chosen.sort(key=lambda z: (-order.index(z.risk_level()),
+                                   -z.vulnerable_waiting(), z.name))
 
         plan = []
         for zone in chosen:
@@ -365,13 +388,20 @@ class RoadNetwork:
                     "distance": km,
                 })
                 remaining -= take
+            placed = zone.population - remaining
+            vulnerable = zone.vulnerable_waiting()
             plan.append({
                 "zone": zone.name,
                 "risk": zone.risk_level(),
                 "population": zone.population,
-                "placed": zone.population - remaining,
+                "vulnerable": vulnerable,
+                "placed": placed,
                 "unplaced": remaining,
                 "assignments": assignments,
+                # vulnerable people are placed first, so only the
+                # leftovers can still be waiting
+                "vulnerable_left": min(max(vulnerable - placed, 0),
+                                       remaining),
             })
         return plan
 
@@ -382,3 +412,4 @@ class RoadNetwork:
         placed = sum(p["placed"] for p in plan)
         return {"total": total, "placed": placed, "unplaced": total - placed}
 
+            
