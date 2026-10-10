@@ -1,0 +1,166 @@
+{
+  "locations": {
+    "Nandyal Bus Stand": [15.4786, 78.4836],
+    "Government Hospital": [15.4815, 78.4855],
+    "Railway Station": [15.4775, 78.482],
+    "Evacuation Center": [15.486, 78.49],
+    "Kundu River Bank": [15.474, 78.48],
+    "Market Yard": [15.48, 78.48],
+    "Gandhi Chowk": [15.483, 78.482],
+    "Srinivasa Nagar": [15.476, 78.487],
+    "Municipal School Shelter": [15.485, 78.484],
+    "Community Hall Shelter": [15.479, 78.49]
+  },
+  "shelters": {
+    "Evacuation Center": 1000,
+    "Municipal School Shelter": 600,
+    "Community Hall Shelter": 400
+  },
+  "zone_population": {
+    "Nandyal Bus Stand": 300,
+    "Government Hospital": 450,
+    "Railway Station": 250,
+    "Kundu River Bank": 800,
+    "Market Yard": 400,
+    "Gandhi Chowk": 350,
+    "Srinivasa Nagar": 600
+  },
+  "roads": [
+    {
+      "name": "Bus Stand - Government Hospital",
+      "start": "Nandyal Bus Stand",
+      "end": "Government Hospital",
+      "distance_km": 2.0,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Government Hospital - Railway Station",
+      "start": "Government Hospital",
+      "end": "Railway Station",
+      "distance_km": 1.5,
+      "flood_level": "medium",
+      "status": "open"
+    },
+    {
+      "name": "Railway Station - Evacuation Center",
+      "start": "Railway Station",
+      "end": "Evacuation Center",
+      "distance_km": 2.0,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Bus Stand - Railway Station",
+      "start": "Nandyal Bus Stand",
+      "end": "Railway Station",
+      "distance_km": 3.5,
+      "flood_level": "high",
+      "status": "open"
+    },
+    {
+      "name": "Government Hospital - Evacuation Center",
+      "start": "Government Hospital",
+      "end": "Evacuation Center",
+      "distance_km": 3.0,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Bus Stand - Evacuation Center",
+      "start": "Nandyal Bus Stand",
+      "end": "Evacuation Center",
+      "distance_km": 5.0,
+      "flood_level": "medium",
+      "status": "blocked"
+    },
+    {
+      "name": "River Bank - Railway Station",
+      "start": "Kundu River Bank",
+      "end": "Railway Station",
+      "distance_km": 1.8,
+      "flood_level": "high",
+      "status": "open"
+    },
+    {
+      "name": "River Bank - Market Yard",
+      "start": "Kundu River Bank",
+      "end": "Market Yard",
+      "distance_km": 2.2,
+      "flood_level": "high",
+      "status": "open"
+    },
+    {
+      "name": "Market Yard - Bus Stand",
+      "start": "Market Yard",
+      "end": "Nandyal Bus Stand",
+      "distance_km": 1.5,
+      "flood_level": "medium",
+      "status": "open"
+    },
+    {
+      "name": "Market Yard - Gandhi Chowk",
+      "start": "Market Yard",
+      "end": "Gandhi Chowk",
+      "distance_km": 2.0,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Gandhi Chowk - Government Hospital",
+      "start": "Gandhi Chowk",
+      "end": "Government Hospital",
+      "distance_km": 1.2,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Gandhi Chowk - Municipal School",
+      "start": "Gandhi Chowk",
+      "end": "Municipal School Shelter",
+      "distance_km": 1.5,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Government Hospital - Municipal School",
+      "start": "Government Hospital",
+      "end": "Municipal School Shelter",
+      "distance_km": 1.8,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Srinivasa Nagar - Bus Stand",
+      "start": "Srinivasa Nagar",
+      "end": "Nandyal Bus Stand",
+      "distance_km": 1.4,
+      "flood_level": "medium",
+      "status": "open"
+    },
+    {
+      "name": "Srinivasa Nagar - Community Hall",
+      "start": "Srinivasa Nagar",
+      "end": "Community Hall Shelter",
+      "distance_km": 2.5,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Community Hall - Evacuation Center",
+      "start": "Community Hall Shelter",
+      "end": "Evacuation Center",
+      "distance_km": 2.0,
+      "flood_level": "low",
+      "status": "open"
+    },
+    {
+      "name": "Railway Station - Srinivasa Nagar",
+      "start": "Railway Station",
+      "end": "Srinivasa Nagar",
+      "distance_km": 1.6,
+      "flood_level": "medium",
+      "status": "open"
+    }
+  ]
+}
