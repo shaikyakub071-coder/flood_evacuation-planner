@@ -108,6 +108,19 @@ def initialize_database():
             VALUES (%s, %s, %s)
             ON CONFLICT (name) DO NOTHING
         """, (name, people, people))
+
+    # History log: one row for every change an admin makes to a road
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS road_history (
+            id SERIAL PRIMARY KEY,
+            changed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            road_name VARCHAR(100) NOT NULL,
+            old_flood VARCHAR(20) NOT NULL,
+            new_flood VARCHAR(20) NOT NULL,
+            old_status VARCHAR(20) NOT NULL,
+            new_status VARCHAR(20) NOT NULL
+        )
+    """)
     conn.commit()
     cur.close()
     conn.close()
@@ -131,6 +144,23 @@ def get_road_status():
                distance_km, flood_level, road_status
         FROM roads ORDER BY road_name
     """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+
+def get_road_history(limit=30):
+    """Latest road changes, newest first (time shown in India time)."""
+    ensure_db()
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT to_char(changed_at AT TIME ZONE 'Asia/Kolkata',
+                       'DD Mon HH24:MI'),
+               road_name, old_flood, new_flood, old_status, new_status
+        FROM road_history ORDER BY id DESC LIMIT %s
+    """, (limit,))
     rows = cur.fetchall()
     cur.close()
     conn.close()
@@ -242,10 +272,18 @@ def update_road_state(road_name, flood_level, status):
     else:
         road.open()
 
+    old_flood, old_status = row[4], row[5]
     cur.execute("""
         UPDATE roads SET flood_level = %s, road_status = %s
         WHERE road_name = %s
     """, (road.flood_level, road.status, road.name))
+    if (old_flood, old_status) != (road.flood_level, road.status):
+        cur.execute("""
+            INSERT INTO road_history (road_name, old_flood, new_flood,
+                                      old_status, new_status)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (road.name, old_flood, road.flood_level,
+              old_status, road.status))
     conn.commit()
     cur.close()
     conn.close()
@@ -299,15 +337,18 @@ def admin():
     error = request.args.get("err")
     shelters = []
     zones = []
+    history = []
     try:
         roads = get_road_status()
         shelters = list(load_network().shelters.values())
         zones = get_zone_rows()
+        history = get_road_history()
     except Exception as e:
         roads = []
         error = "Database error: " + str(e)
     return render_template("admin.html", roads=roads, shelters=shelters,
-                           zones=zones, message=message, error=error)
+                           zones=zones, history=history,
+                           message=message, error=error)
 
 
 @app.route("/reset_shelters", methods=["POST"])
@@ -606,6 +647,7 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
         
