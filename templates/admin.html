@@ -45,7 +45,11 @@
 </div>
 
 <div class="container">
-    <p><a class="back" href="/">← Back to Route Planner</a></p>
+    <p>
+        <a class="back" href="/">← Back to Route Planner</a>
+        &nbsp;|&nbsp;
+        <a class="back" href="/logout">🔓 Logout</a>
+    </p>
 
     {% if message %}<div class="msg">✅ {{ message }}</div>{% endif %}
     {% if error %}<div class="err">❌ {{ error }}</div>{% endif %}
