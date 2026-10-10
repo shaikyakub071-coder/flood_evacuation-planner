@@ -211,6 +211,11 @@ class TestAlternativeAndRisk:
         assert alt[0] != best
         assert alt[0] == ["Home", "Shelter A"]
 
+    def test_alternative_skips_huge_detour(self):
+        net = make_network()          # best = 2 km, only other = 5 km
+        assert net.find_alternative_route(
+            "Home", "Shelter A", max_ratio=2.0) is None
+
     def test_no_alternative_when_only_one_route(self):
         rows = [("A", "B", 1.0, "low", "open")]
         net = RoadNetwork.from_rows(rows, ("B",))
