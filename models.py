@@ -228,6 +228,21 @@ class RoadNetwork:
                     for a, b in zip(route, route[1:]))
         return route, total
 
+    def find_shortest_route(self, source, destination, graph=None):
+        """Plain shortest route by DISTANCE ONLY (flood penalty ignored).
+        Used for comparison with the safest route. It still never uses
+        blocked or submerged roads, because those are not in the graph.
+        Returns (route, km, risk) or None if there is no route."""
+        if graph is None:
+            graph = self.build_graph()
+        try:
+            route = nx.shortest_path(graph, source, destination,
+                                     weight="distance")
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            return None
+        km = sum(graph[a][b]["distance"] for a, b in zip(route, route[1:]))
+        return route, km, self.route_risk(route, graph)
+
     def find_alternative_route(self, source, destination, graph=None,
                                max_ratio=3.0, max_candidates=10):
         """Next-best route that is different from the best one AND not
@@ -366,5 +381,4 @@ class RoadNetwork:
         total = sum(p["population"] for p in plan)
         placed = sum(p["placed"] for p in plan)
         return {"total": total, "placed": placed, "unplaced": total - placed}
-
 
