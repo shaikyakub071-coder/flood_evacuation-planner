@@ -1,3 +1,4 @@
+
 from flask import (Flask, render_template, request, redirect, url_for,
                    session, jsonify)
 from functools import wraps
@@ -7,45 +8,32 @@ import psycopg2
 import os
 
 from models import Road, RoadNetwork, Shelter
+from data_loader import load_data
 
 app = Flask(__name__)
 
 # Needed for login sessions. Set SECRET_KEY on Render (any long random text).
 app.secret_key = os.environ.get("SECRET_KEY", "dev-only-change-me")
 
-# Simulated coordinates (latitude, longitude) around Nandyal
-COORDS = {
-    "Nandyal Bus Stand":        [15.4786, 78.4836],
-    "Government Hospital":      [15.4815, 78.4855],
-    "Railway Station":          [15.4775, 78.4820],
-    "Evacuation Center":        [15.4860, 78.4900],
-    "Kundu River Bank":         [15.4740, 78.4800],
-    "Market Yard":              [15.4800, 78.4800],
-    "Gandhi Chowk":             [15.4830, 78.4820],
-    "Srinivasa Nagar":          [15.4760, 78.4870],
-    "Municipal School Shelter": [15.4850, 78.4840],
-    "Community Hall Shelter":   [15.4790, 78.4900],
-}
+# ---------------------------------------------------------
+# MAP DATA: everything comes from data.json (edit that file to add
+# places, shelters, zone populations or roads). It is checked when
+# the app starts, so a typo is reported immediately.
+# ---------------------------------------------------------
+DATA_FILE = os.environ.get(
+    "DATA_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data.json"))
+DATA = load_data(DATA_FILE)
 
-# Designated shelters: name -> capacity (people)
-SHELTER_INFO = {
-    "Evacuation Center": 1000,
-    "Municipal School Shelter": 600,
-    "Community Hall Shelter": 400,
-}
+COORDS = DATA["locations"]                  # name -> [lat, lon]
+SHELTER_INFO = DATA["shelters"]             # name -> capacity (people)
 SHELTERS = tuple(SHELTER_INFO.keys())
-
-# Starting population of each flood-prone zone (people to evacuate).
-# Admins can change these on the /admin page.
-ZONE_POPULATION = {
-    "Nandyal Bus Stand": 300,
-    "Government Hospital": 450,
-    "Railway Station": 250,
-    "Kundu River Bank": 800,
-    "Market Yard": 400,
-    "Gandhi Chowk": 350,
-    "Srinivasa Nagar": 600,
-}
+ZONE_POPULATION = DATA["zone_population"]   # name -> people
+SAMPLE_ROADS = [
+    (r["name"], r["start"], r["end"], r["distance_km"],
+     r["flood_level"], r["status"])
+    for r in DATA["roads"]
+]
 
 LOCATIONS = list(COORDS.keys())
 
@@ -78,43 +66,7 @@ def initialize_database():
             road_status VARCHAR(20) NOT NULL
         )
     """)
-    sample_roads = [
-        ("Bus Stand - Government Hospital", "Nandyal Bus Stand",
-         "Government Hospital", 2.0, "low", "open"),
-        ("Government Hospital - Railway Station", "Government Hospital",
-         "Railway Station", 1.5, "medium", "open"),
-        ("Railway Station - Evacuation Center", "Railway Station",
-         "Evacuation Center", 2.0, "low", "open"),
-        ("Bus Stand - Railway Station", "Nandyal Bus Stand",
-         "Railway Station", 3.5, "high", "open"),
-        ("Government Hospital - Evacuation Center", "Government Hospital",
-         "Evacuation Center", 3.0, "low", "open"),
-        ("Bus Stand - Evacuation Center", "Nandyal Bus Stand",
-         "Evacuation Center", 5.0, "medium", "blocked"),
-        ("River Bank - Railway Station", "Kundu River Bank",
-         "Railway Station", 1.8, "high", "open"),
-        ("River Bank - Market Yard", "Kundu River Bank",
-         "Market Yard", 2.2, "high", "open"),
-        ("Market Yard - Bus Stand", "Market Yard",
-         "Nandyal Bus Stand", 1.5, "medium", "open"),
-        ("Market Yard - Gandhi Chowk", "Market Yard",
-         "Gandhi Chowk", 2.0, "low", "open"),
-        ("Gandhi Chowk - Government Hospital", "Gandhi Chowk",
-         "Government Hospital", 1.2, "low", "open"),
-        ("Gandhi Chowk - Municipal School", "Gandhi Chowk",
-         "Municipal School Shelter", 1.5, "low", "open"),
-        ("Government Hospital - Municipal School", "Government Hospital",
-         "Municipal School Shelter", 1.8, "low", "open"),
-        ("Srinivasa Nagar - Bus Stand", "Srinivasa Nagar",
-         "Nandyal Bus Stand", 1.4, "medium", "open"),
-        ("Srinivasa Nagar - Community Hall", "Srinivasa Nagar",
-         "Community Hall Shelter", 2.5, "low", "open"),
-        ("Community Hall - Evacuation Center", "Community Hall Shelter",
-         "Evacuation Center", 2.0, "low", "open"),
-        ("Railway Station - Srinivasa Nagar", "Railway Station",
-         "Srinivasa Nagar", 1.6, "medium", "open"),
-    ]
-    for road in sample_roads:
+    for road in SAMPLE_ROADS:
         cur.execute("""
             INSERT INTO roads (road_name, start_location, end_location,
                                distance_km, flood_level, road_status)
@@ -650,3 +602,7 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+
+        
+    
