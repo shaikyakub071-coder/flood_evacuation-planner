@@ -1,6 +1,8 @@
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session)
+                   session, jsonify)
 from functools import wraps
+import hashlib
+import json
 import psycopg2
 import os
 
@@ -328,6 +330,35 @@ def evacuate_all():
 
 
 # ---------------------------------------------------------
+# LIVE STATUS (the browser asks this every few seconds)
+# ---------------------------------------------------------
+@app.route("/api/status")
+def api_status():
+    """Returns a short 'version' fingerprint of every road and shelter.
+    If the fingerprint changes, a road or shelter changed, so the
+    page knows the route on screen may be out of date."""
+    try:
+        roads = get_road_status()
+        network = load_network()
+    except Exception as e:
+        resp = jsonify({"ok": False, "error": str(e)})
+        resp.status_code = 500
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    snapshot = {
+        "roads": [[r[0], float(r[3]), r[4], r[5]] for r in roads],
+        "shelters": [[s.name, s.capacity, s.occupied]
+                     for s in network.shelters.values()],
+    }
+    version = hashlib.md5(
+        json.dumps(snapshot, sort_keys=True).encode()).hexdigest()
+    resp = jsonify({"ok": True, "version": version})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
+# ---------------------------------------------------------
 # WEIGHTED EDGES OF A ROUTE (for the weighted-graph view)
 # ---------------------------------------------------------
 def route_edges(route, graph):
@@ -463,3 +494,7 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
+
+
+                            
