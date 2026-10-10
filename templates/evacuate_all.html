@@ -103,6 +103,12 @@
         </div>
         {% endif %}
 
+        <p style="color:#94a3b8;margin:15px 0 0;">
+            Order: most flooded zones first. Inside the same flood level,
+            zones with more vulnerable people (elderly, disabled, patients)
+            go first.
+        </p>
+
         <table>
             <thead>
                 <tr>
@@ -117,7 +123,12 @@
                 <tr>
                     <td>{{ p.zone }}</td>
                     <td class="{{ p.risk }}">{{ p.risk|upper }}</td>
-                    <td><b>{{ p.population }}</b></td>
+                    <td>
+                        <b>{{ p.population }}</b>
+                        {% if p.vulnerable %}
+                        <div class="sub">🧓 {{ p.vulnerable }} vulnerable (priority)</div>
+                        {% endif %}
+                    </td>
                     <td class="where">
                         {% for a in p.assignments %}
                         <div class="assign">
