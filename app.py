@@ -9,6 +9,7 @@ import os
 
 from models import Road, RoadNetwork, Shelter
 from data_loader import load_data
+from translations import LANGS, translate
 
 app = Flask(__name__)
 
@@ -303,6 +304,35 @@ def update_road_state(road_name, flood_level, status):
     conn.commit()
     cur.close()
     conn.close()
+
+
+# ---------------------------------------------------------
+# LANGUAGE (English / Telugu / Hindi on the public pages)
+# ---------------------------------------------------------
+def current_lang():
+    lang = session.get("lang", "en")
+    return lang if lang in LANGS else "en"
+
+
+@app.context_processor
+def inject_i18n():
+    """Gives every template: t("key"), lang and languages."""
+    lang = current_lang()
+    return {
+        "lang": lang,
+        "languages": LANGS,
+        "t": lambda key, **values: translate(lang, key, **values),
+    }
+
+
+@app.route("/lang/<code>")
+def set_language(code):
+    if code in LANGS:
+        session["lang"] = code
+    nxt = request.args.get("next") or "/"
+    if not nxt.startswith("/") or nxt.startswith("//"):
+        nxt = "/"                      # only redirect inside this site
+    return redirect(nxt)
 
 
 # ---------------------------------------------------------
@@ -689,6 +719,7 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+
 
 
 
