@@ -18,6 +18,10 @@ class Road:
     FLOOD_PENALTY = {"low": 0, "medium": 10, "high": 50, "submerged": 1000}
     VALID_STATUS = ("open", "blocked")
 
+    # Estimated driving speed (km/h) by flood level. Water slows traffic.
+    # Used only for time ESTIMATES; routes are still chosen by cost().
+    SPEED_KMH = {"low": 40, "medium": 25, "high": 10, "submerged": 0}
+
     def __init__(self, name, start, end, distance_km,
                  flood_level="low", status="open"):
         self.name = name
@@ -67,6 +71,13 @@ class Road:
     def cost(self):
         """Cost used by the shortest-path algorithm (distance + risk)."""
         return self.distance_km + self.risk_penalty()
+
+    def travel_minutes(self):
+        """Estimated minutes to drive this road at its flood speed.
+        None if the road cannot be used at all."""
+        if not self.is_passable():
+            return None
+        return self.distance_km / self.SPEED_KMH[self.flood_level] * 60
 
     def __repr__(self):
         return (f"Road({self.start} - {self.end}, {self.distance_km} km, "
@@ -200,7 +211,8 @@ class RoadNetwork:
             graph.add_edge(road.start, road.end,
                            weight=weight,
                            distance=road.distance_km,
-                           risk=road.risk_penalty())
+                           risk=road.risk_penalty(),
+                           minutes=road.travel_minutes())
         return graph
 
     # ---- risk helpers ---------------------------------------------------
@@ -212,6 +224,15 @@ class RoadNetwork:
         if graph is None:
             graph = self.build_graph()
         return sum(graph[a][b]["risk"] for a, b in zip(route, route[1:]))
+
+    def route_minutes(self, route, graph=None):
+        """Estimated travel time of a route in minutes (flooded roads
+        are slower). None if there is no route."""
+        if not route:
+            return None
+        if graph is None:
+            graph = self.build_graph()
+        return sum(graph[a][b]["minutes"] for a, b in zip(route, route[1:]))
 
     @staticmethod
     def risk_label(score):
@@ -386,6 +407,7 @@ class RoadNetwork:
                     "people": take,
                     "route": route,
                     "distance": km,
+                    "minutes": self.route_minutes(route, graph),
                 })
                 remaining -= take
             placed = zone.population - remaining
