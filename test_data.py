@@ -1,253 +1,453 @@
 """
-test_data.py - tests for data_loader.py and for the real data.json
+test_app.py - tests for the Flask routes in app.py
+
+No real database is needed: the functions that talk to PostgreSQL are
+replaced with small fakes.
 
 Run from the project folder with:
     pytest -v
 """
 
-import copy
-import json
-import os
-import tempfile
-
 import pytest
 
-from data_loader import DataError, load_data, validate_data
+import app as app_module
+from models import RoadNetwork, Shelter
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def good():
-    """A small, valid data set (a fresh copy every call)."""
-    return copy.deepcopy({
-        "locations": {
-            "Home": [15.0, 78.0],
-            "Mid": [15.1, 78.1],
-            "Shelter A": [15.2, 78.2],
-        },
-        "shelters": {"Shelter A": 100},
-        "zone_population": {"Home": 40, "Mid": 0},
-        "roads": [
-            {"name": "Home - Mid", "start": "Home", "end": "Mid",
-             "distance_km": 1.5, "flood_level": "low", "status": "open"},
-            {"name": "Mid - Shelter A", "start": "Mid", "end": "Shelter A",
-             "distance_km": 2, "flood_level": "HIGH", "status": " Open "},
-        ],
-    })
+ADMIN_PASSWORD = "correct horse"
 
 
-def problems_of(data):
-    """The error text produced by invalid data."""
-    with pytest.raises(DataError):
-        validate_data(data)
-    try:
-        validate_data(data)
-    except DataError as e:
-        return str(e)
+# ---------------------------------------------------------
+# Test setup
+# ---------------------------------------------------------
+def make_network():
+    rows = [
+        ("Home", "Mid", 1.0, "low", "open"),
+        ("Mid", "Shelter A", 1.0, "low", "open"),
+        ("Mid", "Shelter B", 1.0, "high", "open"),
+    ]
+    net = RoadNetwork.from_rows(rows, ("Shelter A", "Shelter B"))
+    net.shelters["Shelter A"] = Shelter("Shelter A", 100, 0)
+    net.shelters["Shelter B"] = Shelter("Shelter B", 50, 0)
+    net.set_populations({"Home": 30, "Mid": 20})
+    return net
 
 
-# =========================================================
-# VALID DATA
-# =========================================================
-class TestValidData:
-    def test_good_data_loads(self):
-        clean = validate_data(good())
-        assert set(clean["locations"]) == {"Home", "Mid", "Shelter A"}
-        assert clean["shelters"] == {"Shelter A": 100}
-        assert clean["zone_population"] == {"Home": 40, "Mid": 0}
-        assert len(clean["roads"]) == 2
+ROAD_ROWS = [
+    ("Home - Mid", "Home", "Mid", 1.0, "low", "open"),
+    ("Mid - Shelter A", "Mid", "Shelter A", 1.0, "low", "open"),
+]
 
-    def test_text_is_cleaned_and_numbers_converted(self):
-        road = validate_data(good())["roads"][1]
-        assert road["flood_level"] == "high"
-        assert road["status"] == "open"
-        assert road["distance_km"] == 2.0
-        assert isinstance(road["distance_km"], float)
 
-    def test_flood_level_and_status_are_optional(self):
-        data = good()
-        del data["roads"][0]["flood_level"]
-        del data["roads"][0]["status"]
-        road = validate_data(data)["roads"][0]
-        assert road["flood_level"] == "low"
-        assert road["status"] == "open"
+@pytest.fixture
+def client(monkeypatch):
+    """A test client with the database replaced by fakes."""
+    monkeypatch.setenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
+    monkeypatch.setattr(app_module, "ensure_db", lambda: None)
+    monkeypatch.setattr(app_module, "load_network", make_network)
+    monkeypatch.setattr(app_module, "get_road_status", lambda: ROAD_ROWS)
+    monkeypatch.setattr(app_module, "get_zone_rows", lambda: [])
+    monkeypatch.setattr(app_module, "get_road_history", lambda: [])
+    app_module._failed.clear()
+    app_module.app.config["TESTING"] = True
+    with app_module.app.test_client() as c:
+        yield c
 
-    def test_zone_population_is_optional(self):
-        data = good()
-        del data["zone_population"]
-        assert validate_data(data)["zone_population"] == {}
+
+def token(client):
+    """Visit a page so the session has a CSRF token, and return it."""
+    client.get("/login")
+    with client.session_transaction() as sess:
+        return sess["csrf_token"]
+
+
+def log_in(client):
+    tok = token(client)
+    client.post("/login", data={"password": ADMIN_PASSWORD,
+                                "csrf_token": tok})
+    return token(client)           # the session is renewed after login
 
 
 # =========================================================
-# LOCATIONS
+# PUBLIC PAGES
 # =========================================================
-class TestLocations:
-    def test_missing_locations(self):
-        data = good()
-        del data["locations"]
-        assert '"locations" must be' in problems_of(data)
+class TestPublicPages:
+    def test_home_page_loads(self, client):
+        assert client.get("/").status_code == 200
 
-    def test_coordinates_must_be_a_pair_of_numbers(self):
-        for bad in ([1], [1, 2, 3], "15,78", ["a", "b"], [True, False]):
-            data = good()
-            data["locations"]["Home"] = bad
-            assert "latitude, longitude" in problems_of(data)
+    def test_evacuate_all_preview_loads(self, client):
+        resp = client.get("/evacuate-all?risk=medium")
+        assert resp.status_code == 200
+        assert b"Admin login" in resp.data     # preview only for public
 
-    def test_coordinates_must_be_on_earth(self):
-        data = good()
-        data["locations"]["Home"] = [95.0, 78.0]
-        assert "-90..90" in problems_of(data)
-        data["locations"]["Home"] = [15.0, 200.0]
-        assert "-180..180" in problems_of(data)
+    def test_bad_risk_value_falls_back_to_high(self, client):
+        assert client.get("/evacuate-all?risk=banana").status_code == 200
 
+    def test_route_search_works(self, client):
+        tok = token(client)
+        resp = client.post("/", data={
+            "source": "Home", "destination": "Shelter A",
+            "people": "5", "csrf_token": tok})
+        assert resp.status_code == 200
+        assert b"Recommended Evacuation Route" in resp.data
 
-# =========================================================
-# SHELTERS AND ZONES
-# =========================================================
-class TestShelters:
-    def test_shelter_must_be_a_known_location(self):
-        data = good()
-        data["shelters"]["Nowhere Hall"] = 50
-        assert 'shelter "Nowhere Hall"' in problems_of(data)
+    def test_route_shows_estimated_travel_time(self, client):
+        tok = token(client)
+        resp = client.post("/", data={
+            "source": "Home", "destination": "Shelter A",
+            "people": "5", "csrf_token": tok})
+        # Home-Mid-Shelter A = 2 km of dry road at 40 km/h = 3 minutes
+        assert b"Estimated Travel Time: ~3 min" in resp.data
 
-    def test_capacity_must_be_a_positive_whole_number(self):
-        for bad in (0, -5, 10.5, "100", None, True):
-            data = good()
-            data["shelters"]["Shelter A"] = bad
-            assert "capacity" in problems_of(data)
+    def test_evacuate_all_shows_travel_time(self, client):
+        resp = client.get("/evacuate-all?risk=medium")
+        assert "⏱️ ~".encode("utf-8") in resp.data
 
-    def test_need_at_least_one_shelter(self):
-        data = good()
-        data["shelters"] = {}
-        assert '"shelters" must be' in problems_of(data)
+    def test_same_start_and_destination_is_an_error(self, client):
+        tok = token(client)
+        resp = client.post("/", data={
+            "source": "Home", "destination": "Home",
+            "people": "1", "csrf_token": tok})
+        assert b"cannot be the same" in resp.data
 
+    def test_confirm_button_hidden_from_public(self, client):
+        tok = token(client)
+        resp = client.post("/", data={
+            "source": "Home", "destination": "Shelter A",
+            "people": "5", "csrf_token": tok})
+        assert b"/confirm_evacuation" not in resp.data
 
-class TestZones:
-    def test_zone_must_be_a_known_location(self):
-        data = good()
-        data["zone_population"]["Atlantis"] = 10
-        assert 'zone "Atlantis"' in problems_of(data)
-
-    def test_a_shelter_cannot_be_a_zone(self):
-        data = good()
-        data["zone_population"]["Shelter A"] = 10
-        assert "is a shelter" in problems_of(data)
-
-    def test_population_must_be_whole_and_not_negative(self):
-        for bad in (-1, 2.5, "40", None):
-            data = good()
-            data["zone_population"]["Home"] = bad
-            assert "population" in problems_of(data)
+    def test_confirm_button_shown_to_admin(self, client):
+        tok = log_in(client)
+        resp = client.post("/", data={
+            "source": "Home", "destination": "Shelter A",
+            "people": "5", "csrf_token": tok})
+        assert b"/confirm_evacuation" in resp.data
 
 
 # =========================================================
-# ROADS
+# LANGUAGE
 # =========================================================
-class TestRoads:
-    def test_need_at_least_one_road(self):
-        data = good()
-        data["roads"] = []
-        assert '"roads" must be' in problems_of(data)
+class TestLanguage:
+    def test_language_is_stored_in_session(self, client):
+        client.get("/lang/hi?next=/")
+        with client.session_transaction() as sess:
+            assert sess["lang"] == "hi"
 
-    def test_road_needs_a_name(self):
-        data = good()
-        del data["roads"][0]["name"]
-        assert "needs a text" in problems_of(data)
+    def test_unknown_language_is_ignored(self, client):
+        client.get("/lang/xx")
+        with client.session_transaction() as sess:
+            assert "lang" not in sess
 
-    def test_road_ends_must_be_known_places(self):
-        data = good()
-        data["roads"][0]["end"] = "Mdi"            # typo of "Mid"
-        text = problems_of(data)
-        assert '"end" is "Mdi"' in text
-
-    def test_road_cannot_start_and_end_at_same_place(self):
-        data = good()
-        data["roads"][0]["end"] = "Home"
-        assert "start and end are the same" in problems_of(data)
-
-    def test_distance_must_be_a_positive_number(self):
-        for bad in (0, -2, "3", None, True):
-            data = good()
-            data["roads"][0]["distance_km"] = bad
-            assert "distance_km" in problems_of(data)
-
-    def test_flood_level_typo_is_caught(self):
-        data = good()
-        data["roads"][0]["flood_level"] = "hgih"
-        assert "flood_level" in problems_of(data)
-
-    def test_status_typo_is_caught(self):
-        data = good()
-        data["roads"][0]["status"] = "closed"
-        assert "status" in problems_of(data)
-
-    def test_duplicate_road_names_are_caught(self):
-        data = good()
-        data["roads"][1]["name"] = "Home - Mid"
-        assert "used twice" in problems_of(data)
-
-
-class TestAllProblemsReportedTogether:
-    def test_several_mistakes_are_listed_at_once(self):
-        data = good()
-        data["roads"][0]["flood_level"] = "hgih"
-        data["roads"][1]["distance_km"] = -1
-        data["shelters"]["Shelter A"] = 0
-        text = problems_of(data)
-        assert "3 problem(s)" in text
+    def test_redirect_stays_on_this_site(self, client):
+        for bad in ("https://evil.example", "//evil.example"):
+            resp = client.get("/lang/en", query_string={"next": bad})
+            assert resp.headers["Location"] == "/"
 
 
 # =========================================================
-# FILES
+# CSRF
 # =========================================================
-class TestFiles:
-    def test_load_data_reads_a_file(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = os.path.join(folder, "d.json")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(good(), f)
-            assert len(load_data(path)["roads"]) == 2
+class TestCsrf:
+    def test_post_without_token_is_rejected(self, client):
+        resp = client.post("/login", data={"password": ADMIN_PASSWORD})
+        assert resp.status_code == 400
 
-    def test_missing_file(self):
-        with pytest.raises(DataError):
-            load_data(os.path.join(HERE, "no_such_file.json"))
+    def test_post_with_wrong_token_is_rejected(self, client):
+        token(client)
+        resp = client.post("/login", data={"password": ADMIN_PASSWORD,
+                                           "csrf_token": "wrong"})
+        assert resp.status_code == 400
 
-    def test_broken_json(self):
-        with tempfile.TemporaryDirectory() as folder:
-            path = os.path.join(folder, "d.json")
-            with open(path, "w", encoding="utf-8") as f:
-                f.write('{"locations": {')           # cut off
-            with pytest.raises(DataError):
-                load_data(path)
-
-    def test_json_that_is_not_an_object(self):
-        with pytest.raises(DataError):
-            validate_data([1, 2, 3])
+    def test_every_form_carries_a_token(self, client):
+        log_in(client)
+        for page in ("/", "/login", "/admin", "/evacuate-all"):
+            html = client.get(page).data.decode("utf-8")
+            assert html.count("<form") == html.count('name="csrf_token"'), \
+                page
 
 
 # =========================================================
-# THE REAL data.json THAT YOUR APP USES
+# LOGIN
 # =========================================================
-class TestRealDataFile:
-    def test_data_json_is_valid(self):
-        data = load_data(os.path.join(HERE, "data.json"))
-        assert data["shelters"]
-        assert data["roads"]
+class TestLogin:
+    def test_admin_page_needs_login(self, client):
+        resp = client.get("/admin")
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
 
-    def test_every_zone_has_a_road(self):
-        data = load_data(os.path.join(HERE, "data.json"))
-        used = set()
-        for road in data["roads"]:
-            used.update((road["start"], road["end"]))
-        for zone in data["zone_population"]:
-            assert zone in used, zone + " has no road, so nobody could " \
-                "leave it"
+    def test_wrong_password(self, client):
+        tok = token(client)
+        resp = client.post("/login", data={"password": "nope",
+                                           "csrf_token": tok})
+        assert b"Wrong password" in resp.data
+        assert client.get("/admin").status_code == 302
 
-    def test_every_shelter_has_a_road(self):
-        data = load_data(os.path.join(HERE, "data.json"))
-        used = set()
-        for road in data["roads"]:
-            used.update((road["start"], road["end"]))
-        for shelter in data["shelters"]:
-            assert shelter in used, shelter + " has no road, so nobody " \
-                "could reach it"
+    def test_right_password_opens_admin(self, client):
+        log_in(client)
+        assert client.get("/admin").status_code == 200
+
+    def test_logout_closes_admin(self, client):
+        log_in(client)
+        client.get("/logout")
+        assert client.get("/admin").status_code == 302
+
+    def test_missing_server_password_is_reported(self, client, monkeypatch):
+        monkeypatch.delenv("ADMIN_PASSWORD")
+        tok = token(client)
+        resp = client.post("/login", data={"password": "x",
+                                           "csrf_token": tok})
+        assert b"not configured" in resp.data
+
+    def test_locked_after_too_many_failures(self, client):
+        tok = token(client)
+        for _ in range(app_module.MAX_FAILS):
+            client.post("/login", data={"password": "nope",
+                                        "csrf_token": tok})
+        # Even the RIGHT password is refused while locked.
+        resp = client.post("/login", data={"password": ADMIN_PASSWORD,
+                                           "csrf_token": tok})
+        assert b"Too many wrong attempts" in resp.data
+        assert client.get("/admin").status_code == 302
+
+    def test_login_only_redirects_inside_site(self, client):
+        tok = token(client)
+        resp = client.post("/login?next=https://evil.example",
+                           data={"password": ADMIN_PASSWORD,
+                                 "csrf_token": tok})
+        assert resp.headers["Location"].endswith("/admin")
+
+
+# =========================================================
+# ADMIN-ONLY ACTIONS
+# =========================================================
+class TestAdminActions:
+    @pytest.mark.parametrize("url", [
+        "/update_road", "/update_population", "/reset_shelters",
+        "/confirm_evacuation", "/evacuate-all/confirm"])
+    def test_public_cannot_post_admin_routes(self, client, url):
+        tok = token(client)
+        resp = client.post(url, data={"csrf_token": tok})
+        assert resp.status_code == 302
+        assert "/login" in resp.headers["Location"]
+
+    def test_admin_can_update_a_road(self, client, monkeypatch):
+        calls = []
+        monkeypatch.setattr(app_module, "update_road_state",
+                            lambda *a: calls.append(a))
+        tok = log_in(client)
+        client.post("/update_road", data={
+            "road_name": "Home - Mid", "flood_level": "high",
+            "status": "blocked", "csrf_token": tok})
+        assert calls == [("Home - Mid", "high", "blocked")]
+
+    def test_bad_road_update_shows_error(self, client, monkeypatch):
+        def boom(*args):
+            raise ValueError("Road not found: X")
+        monkeypatch.setattr(app_module, "update_road_state", boom)
+        tok = log_in(client)
+        resp = client.post("/update_road", data={
+            "road_name": "X", "flood_level": "low", "status": "open",
+            "csrf_token": tok}, follow_redirects=True)
+        assert b"Road not found" in resp.data
+
+    def test_confirm_evacuation_reserves_places(self, client, monkeypatch):
+        calls = []
+        monkeypatch.setattr(app_module, "reserve_shelter_places",
+                            lambda name, n: calls.append((name, n)))
+        monkeypatch.setitem(app_module.SHELTER_INFO, "Shelter A", 100)
+        tok = log_in(client)
+        client.post("/confirm_evacuation", data={
+            "shelter": "Shelter A", "people": "12", "csrf_token": tok})
+        assert calls == [("Shelter A", 12)]
+
+    def test_confirm_evacuation_rejects_unknown_shelter(self, client,
+                                                        monkeypatch):
+        calls = []
+        monkeypatch.setattr(app_module, "reserve_shelter_places",
+                            lambda name, n: calls.append((name, n)))
+        tok = log_in(client)
+        resp = client.post("/confirm_evacuation", data={
+            "shelter": "Nowhere", "people": "1", "csrf_token": tok},
+            follow_redirects=True)
+        assert calls == []
+        assert b"Unknown shelter" in resp.data
+
+    def test_confirm_all_saves_the_plan(self, client, monkeypatch):
+        saved = []
+        monkeypatch.setattr(app_module, "save_evacuation",
+                            lambda network, plan: saved.append(plan))
+        tok = log_in(client)
+        resp = client.post("/evacuate-all/confirm", data={
+            "risk": "medium", "csrf_token": tok}, follow_redirects=True)
+        assert len(saved) == 1
+        assert b"Reserved shelter places" in resp.data
+
+    def test_confirm_all_with_nobody_to_place(self, client, monkeypatch):
+        saved = []
+        monkeypatch.setattr(app_module, "save_evacuation",
+                            lambda network, plan: saved.append(plan))
+        monkeypatch.setattr(
+            app_module, "load_network",
+            lambda: RoadNetwork.from_rows(
+                [("A", "S", 1.0, "low", "open")], ("S",)))
+        tok = log_in(client)
+        resp = client.post("/evacuate-all/confirm", data={
+            "risk": "medium", "csrf_token": tok}, follow_redirects=True)
+        assert saved == []
+        assert b"Nobody could be placed" in resp.data
+
+
+# =========================================================
+# ATOMIC SHELTER RESERVATION (fake database connection)
+# =========================================================
+class FakeCursor:
+    def __init__(self, conn):
+        self.conn = conn
+        self.rowcount = 0
+
+    def execute(self, sql, params=()):
+        self.conn.statements.append(" ".join(sql.split()))
+        if sql.lstrip().startswith("UPDATE"):
+            people, _name, _need = params
+            free = self.conn.capacity - self.conn.occupied
+            if free >= people:
+                self.conn.occupied += people
+                self.rowcount = 1
+            else:
+                self.rowcount = 0
+
+    def fetchone(self):
+        if self.conn.missing:
+            return None
+        return (self.conn.capacity - self.conn.occupied,)
+
+    def close(self):
+        pass
+
+
+class FakeConnection:
+    def __init__(self, capacity=10, occupied=0, missing=False):
+        self.capacity = capacity
+        self.occupied = occupied
+        self.missing = missing
+        self.statements = []
+        self.committed = False
+        self.rolled_back = False
+        self.closed = False
+
+    def cursor(self):
+        return FakeCursor(self)
+
+    def commit(self):
+        self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
+
+    def close(self):
+        self.closed = True
+
+
+class TestReserveShelterPlaces:
+    def use(self, monkeypatch, conn):
+        monkeypatch.setattr(app_module, "get_connection", lambda: conn)
+
+    def test_reserves_when_there_is_room(self, monkeypatch):
+        conn = FakeConnection(capacity=10, occupied=3)
+        self.use(monkeypatch, conn)
+        app_module.reserve_shelter_places("S", 7)
+        assert conn.occupied == 10
+        assert conn.committed and conn.closed
+
+    def test_single_statement_checks_room_itself(self, monkeypatch):
+        # The room check must be INSIDE the UPDATE (no read-then-write).
+        conn = FakeConnection()
+        self.use(monkeypatch, conn)
+        app_module.reserve_shelter_places("S", 1)
+        update = [s for s in conn.statements if s.startswith("UPDATE")][0]
+        assert "capacity - occupied >=" in update
+
+    def test_refuses_when_full(self, monkeypatch):
+        conn = FakeConnection(capacity=10, occupied=8)
+        self.use(monkeypatch, conn)
+        with pytest.raises(ValueError, match="only 2 places left"):
+            app_module.reserve_shelter_places("S", 5)
+        assert conn.occupied == 8
+        assert not conn.committed and conn.closed
+
+    def test_second_booking_cannot_overbook(self, monkeypatch):
+        conn = FakeConnection(capacity=10, occupied=0)
+        self.use(monkeypatch, conn)
+        app_module.reserve_shelter_places("S", 6)
+        with pytest.raises(ValueError):
+            app_module.reserve_shelter_places("S", 6)
+        assert conn.occupied == 6
+
+    def test_unknown_shelter(self, monkeypatch):
+        conn = FakeConnection(capacity=10, occupied=10, missing=True)
+        self.use(monkeypatch, conn)
+        with pytest.raises(ValueError, match="Unknown shelter"):
+            app_module.reserve_shelter_places("Nowhere", 1)
+
+    def test_zero_people_is_rejected(self, monkeypatch):
+        self.use(monkeypatch, FakeConnection())
+        with pytest.raises(ValueError):
+            app_module.reserve_shelter_places("S", 0)
+
+
+# =========================================================
+# LIVE STATUS API
+# =========================================================
+class TestApiStatus:
+    def test_returns_a_version(self, client):
+        data = client.get("/api/status").get_json()
+        assert data["ok"] is True
+        assert len(data["version"]) == 32
+
+    def test_not_cached(self, client):
+        resp = client.get("/api/status")
+        assert resp.headers["Cache-Control"] == "no-store"
+
+    def test_same_data_gives_same_version(self, client):
+        a = client.get("/api/status").get_json()["version"]
+        b = client.get("/api/status").get_json()["version"]
+        assert a == b
+
+    def test_version_changes_when_a_road_changes(self, client, monkeypatch):
+        before = client.get("/api/status").get_json()["version"]
+        changed = [ROAD_ROWS[0][:4] + ("high", "blocked")] + ROAD_ROWS[1:]
+        monkeypatch.setattr(app_module, "get_road_status", lambda: changed)
+        after = client.get("/api/status").get_json()["version"]
+        assert before != after
+
+    def test_version_changes_when_a_shelter_fills(self, client,
+                                                  monkeypatch):
+        before = client.get("/api/status").get_json()["version"]
+
+        def fuller():
+            net = make_network()
+            net.shelters["Shelter A"].occupied = 40
+            return net
+        monkeypatch.setattr(app_module, "load_network", fuller)
+        after = client.get("/api/status").get_json()["version"]
+        assert before != after
+
+    def test_database_failure_gives_500(self, client, monkeypatch):
+        def boom():
+            raise RuntimeError("db down")
+        monkeypatch.setattr(app_module, "get_road_status", boom)
+        resp = client.get("/api/status")
+        assert resp.status_code == 500
+        assert resp.get_json()["ok"] is False
+
+
+# =========================================================
+# ROUTE EDGES HELPER
+# =========================================================
+def test_route_edges_lists_distance_penalty_and_weight():
+    net = make_network()
+    graph = net.build_graph()
+    edges = app_module.route_edges(["Home", "Mid", "Shelter A"], graph)
+    assert [e["from"] for e in edges] == ["Home", "Mid"]
+    assert edges[0] == {"from": "Home", "to": "Mid", "distance": 1.0,
+                        "risk": 0, "weight": 1.0}
