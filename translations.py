@@ -15,6 +15,9 @@ LANGS = {"en": "English", "te": "తెలుగు", "hi": "हिन्दी"
 
 TEXT = {
     "en": {
+        "time_est": "Estimated Travel Time",
+        "min_short": "min",
+        "cmp_time": "Time",
         "title": "Flood Evacuation Route Planner",
         "subtitle": "Flood-aware evacuation planning using PostgreSQL and NetworkX",
         "admin_link": "Admin: Update Road Conditions",
@@ -109,6 +112,9 @@ TEXT = {
         "ev_th_free": "Free",
     },
     "te": {
+        "time_est": "అంచనా ప్రయాణ సమయం",
+        "min_short": "నిమి",
+        "cmp_time": "సమయం",
         "title": "వరద తరలింపు మార్గ ప్రణాళిక",
         "subtitle": "వరదల సమయంలో సురక్షిత తరలింపు మార్గాల ప్రణాళిక",
         "admin_link": "అడ్మిన్: రోడ్డు పరిస్థితులను నవీకరించండి",
@@ -203,6 +209,9 @@ TEXT = {
         "ev_th_free": "ఖాళీ",
     },
     "hi": {
+        "time_est": "अनुमानित यात्रा समय",
+        "min_short": "मिनट",
+        "cmp_time": "समय",
         "title": "बाढ़ निकासी मार्ग योजनाकार",
         "subtitle": "बाढ़ के दौरान सुरक्षित निकासी मार्गों की योजना",
         "admin_link": "एडमिन: सड़क की स्थिति अपडेट करें",
