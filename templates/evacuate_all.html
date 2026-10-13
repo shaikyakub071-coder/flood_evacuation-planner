@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     {% if not is_admin %}<meta http-equiv="refresh" content="15">{% endif %}
-    <title>Evacuate All Zones</title>
+    <title>{{ t('ev_title') }}</title>
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; font-family: Arial, sans-serif;
@@ -54,42 +54,43 @@
 </head>
 <body>
 <div class="header">
-    <h1>🚨 Evacuate All Zones</h1>
-    <p>Every person in a flood-prone zone is sent to the nearest shelter
-       with room. If a shelter fills up, the group is split.</p>
+    <h1>🚨 {{ t('ev_title') }}</h1>
+    <p>{{ t('ev_sub') }}</p>
 </div>
 
 <div class="container">
-    <p><a class="back" href="/">← Back to Route Planner</a></p>
+    <p><a class="back" href="/">← {{ t('back') }}</a>
+       &nbsp;|&nbsp; 🌐 {% for code, name in languages.items() %}<a class="back" href="/lang/{{ code }}?next={{ request.full_path }}"
+           style="margin:0 5px;{{ 'color:#ffffff;' if code == lang }}">{{ name }}</a>{% endfor %}</p>
 
     {% if error %}<div class="warn">❌ {{ error }}</div>{% endif %}
     {% if message %}<div class="ok">✅ {{ message }}</div>{% endif %}
 
     <div class="box">
         <div class="filters">
-            Show zones with risk:
+            {{ t('ev_filter') }}
             <a href="/evacuate-all?risk=medium"
-               class="{{ 'active' if min_risk == 'medium' }}">Medium +</a>
+               class="{{ 'active' if min_risk == 'medium' }}">{{ t('ev_medium') }}</a>
             <a href="/evacuate-all?risk=high"
-               class="{{ 'active' if min_risk == 'high' }}">High +</a>
+               class="{{ 'active' if min_risk == 'high' }}">{{ t('ev_high') }}</a>
             <a href="/evacuate-all?risk=submerged"
-               class="{{ 'active' if min_risk == 'submerged' }}">Submerged only</a>
+               class="{{ 'active' if min_risk == 'submerged' }}">{{ t('ev_sub_only') }}</a>
         </div>
 
         <div class="cards">
             <div class="card">
                 <div class="num">{{ totals.total }}</div>
-                <div class="lbl">People to evacuate</div>
+                <div class="lbl">{{ t('ev_total') }}</div>
             </div>
             <div class="card">
                 <div class="num low">{{ totals.placed }}</div>
-                <div class="lbl">Can be placed in shelters</div>
+                <div class="lbl">{{ t('ev_placed') }}</div>
             </div>
             <div class="card">
                 <div class="num {{ 'high' if totals.unplaced else 'low' }}">
                     {{ totals.unplaced }}
                 </div>
-                <div class="lbl">No shelter space / no safe route</div>
+                <div class="lbl">{{ t('ev_unplaced') }}</div>
             </div>
         </div>
 
@@ -112,17 +113,17 @@
         <table>
             <thead>
                 <tr>
-                    <th>Zone</th>
-                    <th>Flood Risk</th>
-                    <th>People</th>
-                    <th>Where they go</th>
+                    <th>{{ t('ev_th_zone') }}</th>
+                    <th>{{ t('ev_th_risk') }}</th>
+                    <th>{{ t('ev_th_people') }}</th>
+                    <th>{{ t('ev_th_where') }}</th>
                 </tr>
             </thead>
             <tbody>
             {% for p in plan %}
                 <tr>
                     <td>{{ p.zone }}</td>
-                    <td class="{{ p.risk }}">{{ p.risk|upper }}</td>
+                    <td class="{{ p.risk }}">{{ t(p.risk) }}</td>
                     <td>
                         <b>{{ p.population }}</b>
                         {% if p.vulnerable %}
@@ -132,7 +133,7 @@
                     <td class="where">
                         {% for a in p.assignments %}
                         <div class="assign">
-                            <b>{{ a.people }} people</b> → {{ a.shelter }}
+                            <b>{{ t('ev_n_people', n=a.people) }}</b> → {{ a.shelter }}
                             <div class="sub">
                                 {{ a.route|join(' → ') }}
                                 · {{ "%.2f"|format(a.distance) }} km
@@ -156,11 +157,11 @@
     </div>
 
     <div class="box">
-        <h2>🏠 Shelters after this plan</h2>
+        <h2>🏠 {{ t('ev_shelters') }}</h2>
         <table>
             <thead>
-                <tr><th>Shelter</th><th>Capacity</th>
-                    <th>Occupied</th><th>Free</th></tr>
+                <tr><th>{{ t('shelter') }}</th><th>{{ t('ev_th_capacity') }}</th>
+                    <th>{{ t('ev_th_occupied') }}</th><th>{{ t('ev_th_free') }}</th></tr>
             </thead>
             <tbody>
             {% for s in shelters %}
