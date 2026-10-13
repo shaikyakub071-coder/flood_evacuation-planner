@@ -136,7 +136,7 @@
                             <b>{{ t('ev_n_people', n=a.people) }}</b> → {{ a.shelter }}
                             <div class="sub">
                                 {{ a.route|join(' → ') }}
-                                · {{ "%.2f"|format(a.distance) }} km
+                                · {{ "%.2f"|format(a.distance) }} km · ⏱️ ~{{ a.minutes|round|int }} {{ t('min_short') }}
                             </div>
                         </div>
                         {% endfor %}
@@ -181,6 +181,7 @@
         {% if is_admin %}
             <form method="POST" action="/evacuate-all/confirm"
                   onsubmit="return confirm('Reserve shelter places for {{ totals.placed }} people now?');">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="risk" value="{{ min_risk }}">
                 <button class="btn" type="submit"
                         {% if not totals.placed %}disabled{% endif %}>
