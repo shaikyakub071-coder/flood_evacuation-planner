@@ -480,7 +480,43 @@ class TestAllocation:
             make_network().allocate_evacuation("extreme")
 
 
+# =========================================================
+# TRAVEL TIME ESTIMATES
+# =========================================================
+class TestTravelTime:
+    def test_dry_road_minutes(self):
+        # 40 km at 40 km/h = 60 min
+        assert Road("r", "A", "B", 40, "low").travel_minutes() == 60
 
-                    
-    
-    
+    def test_flood_slows_the_road(self):
+        low = Road("r", "A", "B", 10, "low").travel_minutes()
+        medium = Road("r", "A", "B", 10, "medium").travel_minutes()
+        high = Road("r", "A", "B", 10, "high").travel_minutes()
+        assert low < medium < high
+        assert high == 60            # 10 km at 10 km/h
+
+    def test_unusable_road_has_no_time(self):
+        assert Road("r", "A", "B", 1, "low", "blocked").travel_minutes() is None
+        assert Road("r", "A", "B", 1, "submerged").travel_minutes() is None
+
+    def test_route_minutes_adds_up(self):
+        net = make_network()
+        # Home-Mid 1 km low + Mid-Shelter A 1 km low = 2 km at 40 km/h
+        assert net.route_minutes(["Home", "Mid", "Shelter A"]) == \
+            pytest.approx(3.0)
+
+    def test_route_minutes_none_without_route(self):
+        assert make_network().route_minutes(None) is None
+
+    def test_flooded_route_takes_longer(self):
+        net = make_network()
+        before = net.route_minutes(["Home", "Mid", "Shelter A"])
+        net.roads[0].set_flood_level("high")
+        after = net.route_minutes(["Home", "Mid", "Shelter A"])
+        assert after > before
+
+    def test_evacuation_assignments_have_minutes(self):
+        net = with_population(Home=10)
+        item = net.allocate_evacuation("low")[0]
+        assert item["assignments"][0]["minutes"] == pytest.approx(3.0)
+
