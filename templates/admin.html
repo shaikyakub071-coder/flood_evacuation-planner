@@ -71,6 +71,7 @@
             {% for road in roads %}
                 <tr>
                     <form method="POST" action="/update_road">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <td>
                             {{ road[0] }}
                             <input type="hidden" name="road_name"
@@ -133,6 +134,7 @@
             {% for z in zones %}
                 <tr>
                     <form method="POST" action="/update_population">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <td>
                             {{ z[0] }}
                             <input type="hidden" name="zone" value="{{ z[0] }}">
@@ -221,6 +223,7 @@
             </tbody>
         </table>
         <form method="POST" action="/reset_shelters">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="save-btn" type="submit"
                     style="margin-top:15px;background:#dc2626;">
                 Reset: empty all shelters and restore zone populations
