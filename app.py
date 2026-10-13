@@ -1,10 +1,13 @@
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   session, jsonify)
+                   session, jsonify, abort)
 from functools import wraps
 import hashlib
+import hmac
 import json
 import psycopg2
+import secrets
+import time
 import os
 
 from models import Road, RoadNetwork, Shelter
@@ -14,7 +17,16 @@ from translations import LANGS, translate
 app = Flask(__name__)
 
 # Needed for login sessions. Set SECRET_KEY on Render (any long random text).
-app.secret_key = os.environ.get("SECRET_KEY", "dev-only-change-me")
+_DEV_KEY = "dev-only-change-me"
+app.secret_key = os.environ.get("SECRET_KEY", _DEV_KEY)
+if app.secret_key == _DEV_KEY:
+    print("WARNING: SECRET_KEY is not set. Using an unsafe development "
+          "key. Set SECRET_KEY before deploying.")
+
+# Login sessions last 8 hours, then the admin must log in again.
+app.config["PERMANENT_SESSION_LIFETIME"] = 8 * 60 * 60
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 # ---------------------------------------------------------
 # MAP DATA: everything comes from data.json (edit that file to add
@@ -219,6 +231,39 @@ def load_network():
     return network
 
 
+def reserve_shelter_places(name, people):
+    """Reserve places in ONE atomic SQL statement.
+
+    The UPDATE only succeeds if enough room is still free at the moment
+    it runs, so two people confirming at the same time can never
+    overbook a shelter. Raises ValueError if there is not enough room."""
+    if people < 1:
+        raise ValueError("number of people must be at least 1")
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE shelters
+            SET occupied = occupied + %s
+            WHERE name = %s AND capacity - occupied >= %s
+        """, (people, name, people))
+        if cur.rowcount == 0:
+            cur.execute("SELECT capacity - occupied FROM shelters "
+                        "WHERE name = %s", (name,))
+            row = cur.fetchone()
+            conn.rollback()
+            if row is None:
+                raise ValueError("Unknown shelter")
+            raise ValueError(f"{name} has only {max(row[0], 0)} places left")
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def save_shelter_occupancy(shelter):
     conn = get_connection()
     cur = conn.cursor()
@@ -325,6 +370,35 @@ def inject_i18n():
     }
 
 
+# ---------------------------------------------------------
+# CSRF PROTECTION
+# Every POST must carry the secret token stored in the session.
+# Templates add it with: <input type="hidden" name="csrf_token"
+#                               value="{{ csrf_token() }}">
+# ---------------------------------------------------------
+def get_csrf_token():
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_hex(16)
+    return session["csrf_token"]
+
+
+@app.before_request
+def check_csrf():
+    if request.method != "POST":
+        return
+    sent = request.form.get("csrf_token", "")
+    real = session.get("csrf_token", "")
+    if not real or not hmac.compare_digest(sent, real):
+        abort(400, "Invalid or missing CSRF token. Reload the page "
+                   "and try again.")
+
+
+@app.context_processor
+def inject_security():
+    return {"csrf_token": get_csrf_token,
+            "is_admin": bool(session.get("is_admin"))}
+
+
 @app.route("/lang/<code>")
 def set_language(code):
     if code in LANGS:
@@ -348,21 +422,50 @@ def admin_required(f):
     return wrapper
 
 
+# Simple login rate limit: after MAX_FAILS wrong passwords from one
+# address, further attempts are refused for LOCK_SECONDS.
+# (In memory, so it is per server process.)
+MAX_FAILS = 5
+LOCK_SECONDS = 300
+_failed = {}          # ip -> (fail_count, locked_until_timestamp)
+
+
+def _client_ip():
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    return (forwarded.split(",")[0].strip() if forwarded
+            else request.remote_addr) or "unknown"
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
     if request.method == "POST":
+        ip = _client_ip()
+        fails, locked_until = _failed.get(ip, (0, 0))
         real = os.environ.get("ADMIN_PASSWORD")
-        if not real:
+        if locked_until > time.time():
+            wait = int(locked_until - time.time()) + 1
+            error = f"Too many wrong attempts. Try again in {wait} seconds."
+        elif not real:
             error = "ADMIN_PASSWORD is not configured on the server."
-        elif request.form.get("password") == real:
+        elif hmac.compare_digest(
+                request.form.get("password", "").encode("utf-8"),
+                real.encode("utf-8")):
+            _failed.pop(ip, None)
+            session.clear()               # new session after login
             session["is_admin"] = True
+            session.permanent = True
             # only allow redirects to pages on this site
             nxt = request.args.get("next") or ""
             if not nxt.startswith("/") or nxt.startswith("//"):
                 nxt = url_for("admin")
             return redirect(nxt)
         else:
+            fails += 1
+            if fails >= MAX_FAILS:
+                _failed[ip] = (0, time.time() + LOCK_SECONDS)
+            else:
+                _failed[ip] = (fails, 0)
             error = "Wrong password"
     return render_template("login.html", error=error)
 
@@ -458,17 +561,16 @@ def update_population():
 
 
 @app.route("/confirm_evacuation", methods=["POST"])
+@admin_required
 def confirm_evacuation():
-    """Reserve places in the shelter chosen by the route search."""
+    """Reserve places in the shelter chosen by the route search.
+    Admin only, so the public cannot fill the shelters."""
     name = request.form.get("shelter")
     try:
         people = int(request.form.get("people", "1"))
-        network = load_network()
-        shelter = network.shelters.get(name)
-        if shelter is None:
+        if name not in SHELTER_INFO:
             raise ValueError("Unknown shelter")
-        shelter.assign(people)               # raises if no room
-        save_shelter_occupancy(shelter)
+        reserve_shelter_places(name, people)  # atomic, raises if no room
         return redirect(url_for(
             "home", done=f"{people} people assigned to {name}"))
     except Exception as e:
@@ -584,6 +686,7 @@ def route_edges(route, graph):
             "distance": data["distance"],
             "risk": data["risk"],
             "weight": data["weight"],
+            "minutes": data["minutes"],
         })
     return edges
 
@@ -601,6 +704,7 @@ def home():
     zones = []
     people = 1
     route_risk = risk_label = None
+    route_time = alt_time = None
     alt_route = alt_distance = alt_risk = alt_risk_label = None
     route_edge_list = alt_edge_list = None
     compare = None
@@ -658,6 +762,7 @@ def home():
                     route_risk = network.route_risk(route, graph)
                     risk_label = network.risk_label(route_risk)
                     route_edge_list = route_edges(route, graph)
+                    route_time = network.route_minutes(route, graph)
                     alt = network.find_alternative_route(
                         source, resolved_destination, graph,
                         max_ratio=ALT_MAX_RATIO)
@@ -665,6 +770,7 @@ def home():
                         alt_route, alt_distance, alt_risk = alt
                         alt_risk_label = network.risk_label(alt_risk)
                         alt_edge_list = route_edges(alt_route, graph)
+                        alt_time = network.route_minutes(alt_route, graph)
                     short = network.find_shortest_route(
                         source, resolved_destination, graph)
                     if short:
@@ -673,10 +779,13 @@ def home():
                             "same": short_route == route,
                             "safest": {"route": route, "km": distance,
                                        "risk": route_risk,
+                                       "minutes": route_time,
                                        "label": risk_label},
                             "shortest": {
                                 "route": short_route, "km": short_km,
                                 "risk": short_risk,
+                                "minutes": network.route_minutes(
+                                    short_route, graph),
                                 "label": network.risk_label(short_risk)},
                         }
             except Exception as e:
@@ -707,6 +816,8 @@ def home():
         message=message,
         route_risk=route_risk,
         risk_label=risk_label,
+        route_time=route_time,
+        alt_time=alt_time,
         alt_route=alt_route,
         alt_distance=alt_distance,
         alt_risk=alt_risk,
@@ -729,3 +840,5 @@ if __name__ == "__main__":
 
 
                 
+
+
